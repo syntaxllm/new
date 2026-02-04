@@ -41,18 +41,13 @@ export async function GET(request) {
 
             // B. Handle OneDrive/SharePoint Files (Actual Recordings)
             if (m.source === 'onedrive') {
-                const subject = m.subject?.toLowerCase() || '';
-                // Looser filter: If it's a VTT or MP4 from the recordings discovery, show it.
-                // We depend on the ms-graph logic to have narrowed the list down already.
-                const isLikelyReal = m.isVttFile || subject.endsWith('.mp4') || subject.endsWith('.mov');
-
-                if (!isLikelyReal) continue;
-
+                // If the Graph layer found it, we show it!
+                // We trust the discovery engine in ms-graph.js more now.
                 validMeetings.push({
                     ...m,
                     status: 'READY',
                     isOrganizer: true,
-                    hasTranscript: true // Assume ready if it's a recording/VTT
+                    hasTranscript: true
                 });
                 continue;
             }
@@ -85,10 +80,10 @@ export async function GET(request) {
             }
         }
 
-        // Limit to top 15 results to prevent "Large number of crap meetings"
+        // Limit to top 30 filtered results for clarity but coverage
         const finalResults = validMeetings
             .sort((a, b) => new Date(b.start) - new Date(a.start))
-            .slice(0, 15);
+            .slice(0, 30);
 
         console.log(`Returning ${finalResults.length} strictly filtered meetings.`);
         return NextResponse.json(finalResults);
