@@ -53,7 +53,7 @@ export async function GET(request) {
             }
 
             // 2. Handle Online Meetings from Calendar/API
-            // Only show if user is likely the organizer OR meeting has a confirmed transcript
+            // STRICT SHIELD: Only show if user is definitely the organizer
             let isOrganizer = m.isOrganizer === true;
             if (!isOrganizer) {
                 const orgEmail = m.organizer?.emailAddress?.address || m.organizer?.emailAddress?.name;
@@ -62,19 +62,21 @@ export async function GET(request) {
                 }
             }
 
-            // For calendar/online meetings, they MUST have a transcript to be visible if unowned
+            // If not the organizer of this calendar event, SHIELD it (Silence the bluffs)
+            if (!isOrganizer) continue;
+
+            // For owned meetings, check if they have a transcript
             let transcriptStatus = { hasAccess: false, transcriptsExist: false };
             try {
-                // If it's a calendar event, check for transcript existence
                 transcriptStatus = await checkTranscriptAccess(token, m.id);
             } catch (e) { /* ignore */ }
 
-            if (transcriptStatus.transcriptsExist || isOrganizer) {
+            if (transcriptStatus.transcriptsExist) {
                 validMeetings.push({
                     ...m,
-                    status: transcriptStatus.transcriptsExist ? 'READY' : 'WAITING',
-                    isOrganizer,
-                    hasTranscript: transcriptStatus.transcriptsExist
+                    status: 'READY',
+                    isOrganizer: true,
+                    hasTranscript: true
                 });
             }
         }
