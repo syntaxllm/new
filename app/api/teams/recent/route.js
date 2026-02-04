@@ -32,61 +32,28 @@ export async function GET(request) {
         // 3) Process ALL meetings to determine status
         const validMeetings = [];
 
+        console.log(`[API debug] Processing ${recentMeetings.length} discovery results...`);
+
         for (const m of recentMeetings) {
-            // A. Check if Ingested
+            // Check if Ingested (Log it, but don't skip for debug)
             const isIngested = ingestedExternalIds.has(m.id) ||
                 (m.onlineMeetingId && ingestedExternalIds.has(m.onlineMeetingId));
 
-            if (isIngested) continue;
-
-            // B. Handle OneDrive/SharePoint Files (Actual Recordings)
-            if (m.source === 'onedrive') {
-                // If the Graph layer found it, we show it!
-                // We trust the discovery engine in ms-graph.js more now.
-                validMeetings.push({
-                    ...m,
-                    status: 'READY',
-                    isOrganizer: true,
-                    hasTranscript: true
-                });
-                continue;
+            if (isIngested) {
+                console.log(`[API debug] File already ingested: ${m.subject || m.id}`);
             }
 
-            // C. Handle Online Meetings (Only if fresh and has transcript)
-            let isOrganizer = m.isOrganizer === true;
-            if (!isOrganizer) {
-                const orgEmail = m.organizer?.emailAddress?.address || m.organizer?.emailAddress?.name;
-                if (orgEmail && (orgEmail.toLowerCase() === me.mail?.toLowerCase() || orgEmail.toLowerCase() === me.userPrincipalName?.toLowerCase())) {
-                    isOrganizer = true;
-                }
-            }
-
-            // For calendar/online meetings, only show if they are definitely organizer and fresh
-            if (!isOrganizer) continue;
-
-            // Check transcript access
-            let transcriptStatus = { hasAccess: false, transcriptsExist: false };
-            try {
-                transcriptStatus = await checkTranscriptAccess(token, m.id);
-            } catch (e) { /* ignore */ }
-
-            if (transcriptStatus.transcriptsExist) {
-                validMeetings.push({
-                    ...m,
-                    status: 'READY',
-                    isOrganizer: true,
-                    hasTranscript: true
-                });
-            }
+            // For now, let's just include EVERYTHING that was discovered
+            validMeetings.push({
+                ...m,
+                status: isIngested ? 'INGESTED' : 'READY',
+                isOrganizer: true,
+                hasTranscript: true
+            });
         }
 
-        // Limit to top 30 filtered results for clarity but coverage
-        const finalResults = validMeetings
-            .sort((a, b) => new Date(b.start) - new Date(a.start))
-            .slice(0, 30);
-
-        console.log(`Returning ${finalResults.length} strictly filtered meetings.`);
-        return NextResponse.json(finalResults);
+        console.log(`Returning ${validMeetings.length} results to UI.`);
+        return NextResponse.json(validMeetings);
 
     } catch (error) {
         console.error('Error in /api/teams/recent:', error);
