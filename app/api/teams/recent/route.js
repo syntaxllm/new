@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { listRecentMeetings, checkTranscriptAccess, getMeetingInfo } from '../../../../lib/ms-graph.js';
+import { listRecentMeetings, fetchTeamsRecording, getMeetingInfo } from '../../../../lib/ms-graph.js';
 import { loadTranscripts } from '../../../../lib/backend-adapter.js';
 
 export async function GET(request) {
@@ -30,56 +30,57 @@ export async function GET(request) {
         console.log(`Found ${recentMeetings.length} recent online meetings from calendar`);
 
         // 3) Process ALL meetings to determine status
-        const validMeetings = [];
 
         console.log(`[API debug] Processing ${recentMeetings.length} discovery results...`);
 
-        for (const m of recentMeetings) {
-            // Check if Ingested
+        const checkPromises = recentMeetings.map(async (m) => {
+            // Ignore upcoming meetings
+            if (new Date(m.start) > new Date()) return null;
+
+            // Ignore already ingested meetings
             const isIngested = ingestedExternalIds.has(m.id) ||
                 (m.onlineMeetingId && ingestedExternalIds.has(m.onlineMeetingId));
+            if (isIngested) return null;
 
-            if (isIngested) continue;
-
-            // 1. Handle OneDrive/SharePoint Files (Actual Recordings found by our engine)
+            // Case 1: It's a direct file from OneDrive/SharePoint search. It's a "recorded thing".
             if (m.source === 'onedrive') {
-                validMeetings.push({
-                    ...m,
-                    status: 'READY',
-                    isOrganizer: true,
-                    hasTranscript: true
-                });
-                continue;
+                return { ...m, status: 'READY', isOrganizer: true, hasTranscript: m.isVttFile };
             }
 
-            // 2. Handle Online Meetings from Calendar/API
-            // STRICT SHIELD: Only show if user is definitely the organizer
-            let isOrganizer = m.isOrganizer === true;
-            if (!isOrganizer) {
-                const orgEmail = m.organizer?.emailAddress?.address || m.organizer?.emailAddress?.name;
-                if (orgEmail && (orgEmail.toLowerCase() === me.mail?.toLowerCase() || orgEmail.toLowerCase() === me.userPrincipalName?.toLowerCase())) {
-                    isOrganizer = true;
+            // Case 2: It's a calendar event. We must verify it has a recording.
+            if (m.source === 'calendar' || m.source === 'onlineMeeting') {
+                // First, check if the user is the organizer
+                let isOrganizer = m.isOrganizer === true;
+                if (!isOrganizer) {
+                    const orgEmail = m.organizer?.emailAddress?.address || m.organizer?.emailAddress?.name;
+                    if (orgEmail && (orgEmail.toLowerCase() === me.mail?.toLowerCase() || orgEmail.toLowerCase() === me.userPrincipalName?.toLowerCase())) {
+                        isOrganizer = true;
+                    }
+                }
+                if (!isOrganizer) return null;
+
+                // Now, robustly check for a recording
+                try {
+                    if (!m.onlineMeetingId || typeof m.onlineMeetingId !== 'string') return null;
+                    const recording = await fetchTeamsRecording(token, m.onlineMeetingId);
+                    if (recording) {
+                        return { ...m, status: 'READY', isOrganizer: true, hasTranscript: false };
+                    }
+                } catch (err) {
+                    // This error is expected for non-Teams meetings, so we just log and discard
+                    console.warn(`Could not confirm recording for '${m.subject}'. Discarding.`);
+                    return null;
                 }
             }
 
-            // If not the organizer of this calendar event, SHIELD it (Silence the bluffs)
-            if (!isOrganizer) continue;
+            return null; // Discard anything that doesn't match the criteria
+        });
 
-            // For owned meetings, check if they have a transcript
-            let transcriptStatus = { hasAccess: false, transcriptsExist: false };
-            try {
-                transcriptStatus = await checkTranscriptAccess(token, m.id);
-            } catch (e) { /* ignore */ }
+        const settledResults = await Promise.allSettled(checkPromises);
 
-            if (transcriptStatus.transcriptsExist) {
-                validMeetings.push({
-                    ...m,
-                    status: 'READY',
-                    isOrganizer: true,
-                    hasTranscript: true
-                });
-            }
-        }
+        const validMeetings = settledResults
+            .filter(res => res.status === 'fulfilled' && res.value)
+            .map(res => res.value);
 
         const finalResults = validMeetings
             .sort((a, b) => new Date(b.start) - new Date(a.start))
