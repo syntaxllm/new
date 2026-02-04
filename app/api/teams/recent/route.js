@@ -39,33 +39,35 @@ export async function GET(request) {
 
             if (isIngested) continue;
 
-            // B. Check Organizer Status
-            // Use explicit flag from our smart Fetcher OR check email
-            let isOrganizer = m.isOrganizer === true;
+            // B. Handle OneDrive/SharePoint Files (Actual Recordings)
+            if (m.source === 'onedrive') {
+                let hasTranscript = m.isVttFile;
 
+                // If it's a video file, it's a high-value target
+                if (m.subject.toLowerCase().endsWith('.mp4')) {
+                    // We assume it MIGHT have a transcript since it's in the Recordings folder
+                    hasTranscript = true;
+                }
+
+                validMeetings.push({
+                    ...m,
+                    status: hasTranscript ? 'READY' : 'ONEDRIVE_FILE',
+                    isOrganizer: true,
+                    hasTranscript: hasTranscript
+                });
+                continue;
+            }
+
+            // C. Handle Online Meetings
+            let isOrganizer = m.isOrganizer === true;
             if (!isOrganizer) {
                 const orgEmail = m.organizer?.emailAddress?.address || m.organizer?.emailAddress?.name;
-                // Case-insensitive check
                 if (orgEmail && (orgEmail.toLowerCase() === me.mail?.toLowerCase() || orgEmail.toLowerCase() === me.userPrincipalName?.toLowerCase())) {
                     isOrganizer = true;
                 }
             }
 
-            // --- Special Handling for OneDrive Files (P2P Recordings) ---
-            if (m.source === 'onedrive') {
-                // We found the recording file directly!
-                validMeetings.push({
-                    ...m,
-                    status: 'ONEDRIVE_FILE', // Special status
-                    isOrganizer: true,
-                    hasTranscript: false // We can't auto-fetch transcript from DriveItem yet
-                });
-                continue;
-            }
-
-            // --- DEBUG MODE: Relaxed strict filtering to diagnose missing meetings ---
-            // We return matching meetings with a status explanation instead of hiding them completely.
-
+            // Check transcript access
             let transcriptStatus = { hasAccess: false, transcriptsExist: false };
             try {
                 transcriptStatus = await checkTranscriptAccess(token, m.id);
@@ -73,6 +75,7 @@ export async function GET(request) {
                 console.warn(`Transcript check failed for ${m.id}`, e.message);
             }
 
+            // ONLY show if it's actionable: Organizer with Transcripts OR already has standalone VTT
             if (isOrganizer && transcriptStatus.transcriptsExist) {
                 validMeetings.push({
                     ...m,
@@ -80,19 +83,11 @@ export async function GET(request) {
                     isOrganizer: true,
                     hasTranscript: true
                 });
-            } else {
-                // Include "invalid" meetings for visibility during debugging if they are recent
-                // Only show if it matches the "User's" meeting roughly (attendee or organizer)
-                validMeetings.push({
-                    ...m,
-                    status: isOrganizer ? 'NO_TRANSCRIPT' : 'NOT_ORGANIZER',
-                    isOrganizer: isOrganizer,
-                    hasTranscript: transcriptStatus.transcriptsExist
-                });
             }
+            // HIDE "bluffs" (meetings with no transcript or where I am just an attendee)
         }
 
-        console.log(`Returning ${validMeetings.length} meetings (Debug Mode).`);
+        console.log(`Returning ${validMeetings.length} strictly filtered meetings.`);
         return NextResponse.json(validMeetings);
 
     } catch (error) {

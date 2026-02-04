@@ -1,6 +1,5 @@
-// ... (import remains)
-
-
+import { NextResponse } from 'next/server';
+import { ingestTeamsMeeting } from '../../../../lib/backend-adapter.js';
 /**
  * POST /api/ingest/teams
  * Body: { accessToken: string, teamsMeetingId: string }
@@ -8,14 +7,18 @@
 export async function POST(request) {
     try {
         const body = await request.json();
-        const { accessToken, teamsMeetingId } = body;
+        const { teamsMeetingId, meetingData } = body;
+
+        // Get token from body or cookie
+        const accessToken = body.accessToken || request.cookies.get('ms_token')?.value;
 
         if (!accessToken || !teamsMeetingId) {
-            return NextResponse.json({ error: 'accessToken and teamsMeetingId are required' }, { status: 400 });
+            return NextResponse.json({ error: 'Authorization or teamsMeetingId is required' }, { status: 400 });
         }
 
         // Trigger real-world ingestion from MS Graph to MongoDB
-        const meeting = await ingestTeamsMeeting(accessToken, teamsMeetingId);
+        // Pass resourcePath if we have it from the discovery phase
+        const meeting = await ingestTeamsMeeting(accessToken, teamsMeetingId, meetingData?.resourcePath);
 
         return NextResponse.json({
             success: true,
