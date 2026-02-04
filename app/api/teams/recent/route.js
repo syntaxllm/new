@@ -41,24 +41,23 @@ export async function GET(request) {
 
             // B. Handle OneDrive/SharePoint Files (Actual Recordings)
             if (m.source === 'onedrive') {
-                let hasTranscript = m.isVttFile;
+                const subject = m.subject?.toLowerCase() || '';
+                // Looser filter: If it's a VTT or MP4 from the recordings discovery, show it.
+                // We depend on the ms-graph logic to have narrowed the list down already.
+                const isLikelyReal = m.isVttFile || subject.endsWith('.mp4') || subject.endsWith('.mov');
 
-                // If it's a video file, it's a high-value target
-                if (m.subject.toLowerCase().endsWith('.mp4')) {
-                    // We assume it MIGHT have a transcript since it's in the Recordings folder
-                    hasTranscript = true;
-                }
+                if (!isLikelyReal) continue;
 
                 validMeetings.push({
                     ...m,
-                    status: hasTranscript ? 'READY' : 'ONEDRIVE_FILE',
+                    status: 'READY',
                     isOrganizer: true,
-                    hasTranscript: hasTranscript
+                    hasTranscript: true // Assume ready if it's a recording/VTT
                 });
                 continue;
             }
 
-            // C. Handle Online Meetings
+            // C. Handle Online Meetings (Only if fresh and has transcript)
             let isOrganizer = m.isOrganizer === true;
             if (!isOrganizer) {
                 const orgEmail = m.organizer?.emailAddress?.address || m.organizer?.emailAddress?.name;
@@ -67,16 +66,16 @@ export async function GET(request) {
                 }
             }
 
+            // For calendar/online meetings, only show if they are definitely organizer and fresh
+            if (!isOrganizer) continue;
+
             // Check transcript access
             let transcriptStatus = { hasAccess: false, transcriptsExist: false };
             try {
                 transcriptStatus = await checkTranscriptAccess(token, m.id);
-            } catch (e) {
-                console.warn(`Transcript check failed for ${m.id}`, e.message);
-            }
+            } catch (e) { /* ignore */ }
 
-            // ONLY show if it's actionable: Organizer with Transcripts OR already has standalone VTT
-            if (isOrganizer && transcriptStatus.transcriptsExist) {
+            if (transcriptStatus.transcriptsExist) {
                 validMeetings.push({
                     ...m,
                     status: 'READY',
@@ -84,11 +83,15 @@ export async function GET(request) {
                     hasTranscript: true
                 });
             }
-            // HIDE "bluffs" (meetings with no transcript or where I am just an attendee)
         }
 
-        console.log(`Returning ${validMeetings.length} strictly filtered meetings.`);
-        return NextResponse.json(validMeetings);
+        // Limit to top 15 results to prevent "Large number of crap meetings"
+        const finalResults = validMeetings
+            .sort((a, b) => new Date(b.start) - new Date(a.start))
+            .slice(0, 15);
+
+        console.log(`Returning ${finalResults.length} strictly filtered meetings.`);
+        return NextResponse.json(finalResults);
 
     } catch (error) {
         console.error('Error in /api/teams/recent:', error);
