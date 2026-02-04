@@ -35,25 +35,56 @@ export async function GET(request) {
         console.log(`[API debug] Processing ${recentMeetings.length} discovery results...`);
 
         for (const m of recentMeetings) {
-            // Check if Ingested (Log it, but don't skip for debug)
+            // Check if Ingested
             const isIngested = ingestedExternalIds.has(m.id) ||
                 (m.onlineMeetingId && ingestedExternalIds.has(m.onlineMeetingId));
 
-            if (isIngested) {
-                console.log(`[API debug] File already ingested: ${m.subject || m.id}`);
+            if (isIngested) continue;
+
+            // 1. Handle OneDrive/SharePoint Files (Actual Recordings found by our engine)
+            if (m.source === 'onedrive') {
+                validMeetings.push({
+                    ...m,
+                    status: 'READY',
+                    isOrganizer: true,
+                    hasTranscript: true
+                });
+                continue;
             }
 
-            // For now, let's just include EVERYTHING that was discovered
-            validMeetings.push({
-                ...m,
-                status: isIngested ? 'INGESTED' : 'READY',
-                isOrganizer: true,
-                hasTranscript: true
-            });
+            // 2. Handle Online Meetings from Calendar/API
+            // Only show if user is likely the organizer OR meeting has a confirmed transcript
+            let isOrganizer = m.isOrganizer === true;
+            if (!isOrganizer) {
+                const orgEmail = m.organizer?.emailAddress?.address || m.organizer?.emailAddress?.name;
+                if (orgEmail && (orgEmail.toLowerCase() === me.mail?.toLowerCase() || orgEmail.toLowerCase() === me.userPrincipalName?.toLowerCase())) {
+                    isOrganizer = true;
+                }
+            }
+
+            // For calendar/online meetings, they MUST have a transcript to be visible if unowned
+            let transcriptStatus = { hasAccess: false, transcriptsExist: false };
+            try {
+                // If it's a calendar event, check for transcript existence
+                transcriptStatus = await checkTranscriptAccess(token, m.id);
+            } catch (e) { /* ignore */ }
+
+            if (transcriptStatus.transcriptsExist || isOrganizer) {
+                validMeetings.push({
+                    ...m,
+                    status: transcriptStatus.transcriptsExist ? 'READY' : 'WAITING',
+                    isOrganizer,
+                    hasTranscript: transcriptStatus.transcriptsExist
+                });
+            }
         }
 
-        console.log(`Returning ${validMeetings.length} results to UI.`);
-        return NextResponse.json(validMeetings);
+        const finalResults = validMeetings
+            .sort((a, b) => new Date(b.start) - new Date(a.start))
+            .slice(0, 30);
+
+        console.log(`Returning ${finalResults.length} clean results to UI.`);
+        return NextResponse.json(finalResults);
 
     } catch (error) {
         console.error('Error in /api/teams/recent:', error);
