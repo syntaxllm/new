@@ -106,31 +106,36 @@ export default function MeetingAI() {
         setTimeout(() => setStatus(''), 5000);
     }
 
-    async function ingestMeeting(m) {
-        setStatus(`Ingesting ${m.subject}...`);
+    async function ingestMeeting(meeting) {
+        setStatus(`Ingesting ${meeting.subject}...`);
         try {
+            const token = document.cookie.split('ms_token=')[1]?.split(';')[0];
             const res = await fetch('/api/ingest/teams', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    teamsMeetingId: m.id || m.onlineMeetingId,
-                    meetingData: m
+                    accessToken: token,
+                    teamsMeetingId: meeting.driveItemId || meeting.id,
+                    meetingData: meeting
                 })
             });
             const data = await res.json();
-            if (data.success) {
-                await loadMeetings();
-                await loadRealMeetings();
+            if (res.ok) {
                 setStatus('Ingestion successful!');
+                loadMeetings();
+                loadRealMeetings(); // Refresh list to remove ingested item
             } else {
                 setStatus(`Error: ${data.error}`);
+                // If error is related to transcript, suggest VTT upload
+                if (data.error?.includes('Transcript') || data.error?.includes('404')) {
+                    alert('Automatic transcript fetch failed. Please use the "Attach VTT" button to upload the transcript manually.');
+                }
             }
-        } catch (e) {
-            console.error(e);
-            setStatus('Ingestion failed.');
+        } catch (error) {
+            setStatus(`Network error: ${error.message}`);
         }
-        setTimeout(() => setStatus(''), 3000);
     }
+
 
     async function doUpload(e) {
         const file = e.target.files[0];
