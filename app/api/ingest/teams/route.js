@@ -9,15 +9,19 @@ export async function POST(request) {
         const body = await request.json();
         const { teamsMeetingId, meetingData } = body;
 
+        console.log('[Ingest API] Request body:', JSON.stringify({ teamsMeetingId, meetingData }, null, 2));
+
         // Get token from body or cookie
         const accessToken = body.accessToken || request.cookies.get('ms_token')?.value;
 
         if (!accessToken || !teamsMeetingId) {
+            console.error('[Ingest API] Missing required fields');
             return NextResponse.json({ error: 'Authorization or teamsMeetingId is required' }, { status: 400 });
         }
 
         // Trigger real-world ingestion from MS Graph to MongoDB
         // Pass resourcePath if we have it from the discovery phase
+        console.log('[Ingest API] Calling ingestTeamsMeeting with resourcePath:', meetingData?.resourcePath);
         const meeting = await ingestTeamsMeeting(accessToken, teamsMeetingId, meetingData?.resourcePath);
 
         return NextResponse.json({

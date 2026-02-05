@@ -24,10 +24,16 @@ export async function GET(request) {
         const ingestedExternalIds = new Set(ingested.map(t => t.externalId));
 
         // 4) Filter out ingested meetings
+        console.log('[API] Files found:', recentMeetings.map(m => ({ id: m.id, subject: m.subject })));
+        console.log('[API] Already ingested IDs:', Array.from(ingestedExternalIds));
+
         const validMeetings = recentMeetings
             .filter(m => {
                 const isIngested = ingestedExternalIds.has(m.id) ||
                     (m.onlineMeetingId && ingestedExternalIds.has(m.onlineMeetingId));
+                if (isIngested) {
+                    console.log(`[API] Filtering out (already ingested): ${m.subject || m.id}`);
+                }
                 return !isIngested;
             })
             .map(m => ({
@@ -37,7 +43,8 @@ export async function GET(request) {
                 hasTranscript: m.isVttFile || false
             }));
 
-        console.log(`Returning ${validMeetings.length} clean results to UI.`);
+        console.log(`[API] Returning ${validMeetings.length} clean results to UI.`);
+        console.log('[API] Full response:', JSON.stringify(validMeetings, null, 2));
         return NextResponse.json(validMeetings);
 
     } catch (error) {
