@@ -20,9 +20,9 @@ export async function POST(request) {
         }
 
         // Trigger real-world ingestion from MS Graph to MongoDB
-        // Pass resourcePath if we have it from the discovery phase
+        // Pass resourcePath AND full meetingData for VTT access
         console.log('[Ingest API] Calling ingestTeamsMeeting with resourcePath:', meetingData?.resourcePath);
-        const meeting = await ingestTeamsMeeting(accessToken, teamsMeetingId, meetingData?.resourcePath);
+        const meeting = await ingestTeamsMeeting(accessToken, teamsMeetingId, meetingData?.resourcePath, meetingData);
 
         return NextResponse.json({
             success: true,
