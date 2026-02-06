@@ -17,6 +17,8 @@
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.0.0",
     "next": "^14.0.0",
+    "puppeteer": "^24.37.0",
+    "puppeteer-stream": "^3.0.22",
     "react": "^18.0.0",
     "react-dom": "^18.0.0"
   },
