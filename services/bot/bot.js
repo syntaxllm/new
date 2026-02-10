@@ -15,7 +15,10 @@ if (!MEETING_URL) {
 }
 
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-const RECORDING_PATH = path.resolve(process.cwd(), 'recordings', `meeting-${timestamp}.webm`);
+const RECORDINGS_DIR = path.resolve(process.cwd(), 'recordings');
+if (!fs.existsSync(RECORDINGS_DIR)) fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
+const RECORDING_PATH = path.resolve(RECORDINGS_DIR, `meeting-${timestamp}.webm`);
+const TRANSCRIPT_PATH = path.resolve(RECORDINGS_DIR, `transcript-${timestamp}.txt`);
 
 // Helper to safely send IPC messages
 function sendIPC(type, payload) {
@@ -39,25 +42,34 @@ const pid = process.pid;
     console.log(`🤖 Bot Launching (Stable Mode) [PID: ${pid}]...`);
 
     const browser = await puppeteer.launch({
-        headless: false, // HEADED MODE (More reliable on Windows)
+        headless: 'new',
         defaultViewport: null,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-notifications',
-            '--use-fake-ui-for-media-stream', // Still useful for auto-allow
-            '--use-fake-device-for-media-stream',
+            '--use-fake-ui-for-media-stream',
+            // We removed --use-fake-device-for-media-stream to stop the green screen
             '--disable-infobars',
             '--ignore-certificate-errors',
             '--disable-gpu',
             '--window-size=1920,1080',
-            '--window-position=-2000,-2000', // ✅ HIDDEN: Off-screen
-            '--disable-dev-shm-usage'
+            '--disable-dev-shm-usage',
+            '--autoplay-policy=no-user-gesture-required'
         ]
     });
 
     const pages = await browser.pages();
     const page = pages[0] || await browser.newPage();
+
+    // Create a write stream for the audio data
+    const audioStream = fs.createWriteStream(RECORDING_PATH);
+
+    // Expose a function to the page to receive audio chunks
+    await page.exposeFunction('sendAudioChunk', (chunkBase64) => {
+        const buffer = Buffer.from(chunkBase64, 'base64');
+        audioStream.write(buffer);
+    });
 
     // Set viewport explicitly
     await page.setViewport({ width: 1920, height: 1080 });
@@ -188,8 +200,8 @@ const pid = process.pid;
         // --- STEP 2.5: DISABLE CAMERA AND MIC (SILENT MODE) ---
         console.log('🔇 Disabling Camera and Mic...');
         try {
-            // Turn OFF camera if it's ON
-            const cameraBtn = await page.$('button[data-tid="toggle-video"], button[aria-label*="camera"], button[aria-label*="Camera"]');
+            // Updated selectors for Teams New UI
+            const cameraBtn = await page.$('button[data-tid="toggle-video"], [aria-label*="camera" i], [aria-label*="video" i]');
             if (cameraBtn) {
                 const isCameraOn = await page.evaluate(btn => {
                     const ariaPressed = btn.getAttribute('aria-pressed');
@@ -202,10 +214,11 @@ const pid = process.pid;
                 } else {
                     console.log('📷 Camera already OFF');
                 }
+            } else {
+                console.log('📷 Camera button not found');
             }
 
-            // Turn OFF mic if it's ON
-            const micBtn = await page.$('button[data-tid="toggle-mute"], button[aria-label*="microphone"], button[aria-label*="Microphone"]');
+            const micBtn = await page.$('button[data-tid="toggle-mute"], [aria-label*="microphone" i], [aria-label*="mute" i]');
             if (micBtn) {
                 const isMicOn = await page.evaluate(btn => {
                     const ariaPressed = btn.getAttribute('aria-pressed');
@@ -218,8 +231,10 @@ const pid = process.pid;
                 } else {
                     console.log('🎤 Microphone already OFF');
                 }
+            } else {
+                console.log('🎤 Microphone button not found');
             }
-            await new Promise(r => setTimeout(r, 500));
+            await new Promise(r => setTimeout(r, 1000));
         } catch (e) {
             console.log('⚠️ Could not toggle cam/mic:', e.message);
         }
@@ -421,9 +436,10 @@ const pid = process.pid;
                         const aria = (b.getAttribute('aria-label') || '').toLowerCase();
                         return aria.includes('leave') || aria.includes('hang up');
                     });
-                    const roster = document.querySelector('[data-tid="calling-roster"]');
-                    const stage = document.querySelector('[data-tid="calling-screen"]');
-                    return !!(hangup || leaveBtn || roster || stage);
+                    const toolbar = document.querySelector('[data-tid="calling-roster"]') ||
+                        document.querySelector('.meeting-action-bar') ||
+                        document.querySelector('[aria-label="Meeting controls"]');
+                    return !!(hangup || leaveBtn || toolbar);
                 });
             } catch (e) {
                 return false;
@@ -501,45 +517,94 @@ const pid = process.pid;
             } catch (e) { }
         }
 
-        // --- STEP 4: KEEP ALIVE + CAPTION SCRAPING ---
+        // --- STEP 5: LISTEN MODE (AUDIO RECORDING & STT) ---
+        if (finalState === 'IN_MEETING' || finalState === 'IN_LOBBY') {
+            console.log('🎤 Starting LISTEN MODE (Recording audio for STT)...');
+
+            await page.evaluate(async () => {
+                window.recordedChunks = [];
+
+                // Helper to find audio stream
+                const getMeetingAudioStream = async () => {
+                    // Method 1: Capture tab audio via extension (not available here)
+                    // Method 2: Capture via navigator.mediaDevices.getUserMedia (self-record)
+                    // Method 3 (Best for Teams): Capture the audio from all <audio> elements
+                    const ctx = new AudioContext();
+                    const dest = ctx.createMediaStreamDestination();
+
+                    const captureAudio = () => {
+                        const audios = document.querySelectorAll('audio');
+                        audios.forEach(audio => {
+                            if (audio.srcObject && !audio.dataset.captured) {
+                                audio.dataset.captured = 'true';
+                                console.log('Captured audio element stream');
+                                const source = ctx.createMediaStreamSource(audio.srcObject);
+                                source.connect(dest);
+                            }
+                        });
+                    };
+
+                    // Polling to catch new audio elements (speakers joining)
+                    setInterval(captureAudio, 5000);
+                    captureAudio();
+
+                    return dest.stream;
+                };
+
+                const stream = await getMeetingAudioStream();
+                const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+
+                mediaRecorder.ondataavailable = async (event) => {
+                    if (event.data.size > 0) {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            const base64 = reader.result.split(',')[1];
+                            window.sendAudioChunk(base64);
+                        };
+                        reader.readAsDataURL(event.data);
+                    }
+                };
+
+                mediaRecorder.start(1000); // 1 second chunks
+                window.meetingMediaRecorder = mediaRecorder;
+                console.log('MediaRecorder started');
+            });
+        }
+
+        // --- STEP 6: KEEP ALIVE + INCREMENTAL TRANSCRIPTION ---
         console.log('⏳ Bot staying alive for 10 minutes (transcription mode)...');
-        console.log('📂 Check public/debug/ folder for screenshots');
-        console.log('🎤 Scraping live captions if available...');
+        console.log('🔊 Transcription results will appear every 30 seconds');
 
         const keepAliveUntil = Date.now() + (10 * 60 * 1000); // 10 minutes from now
-        const transcriptLines = [];
-        let lastCaptionText = '';
+        let lastTranscriptionSize = 0;
 
         const heartbeatInterval = setInterval(async () => {
             const remaining = Math.floor((keepAliveUntil - Date.now()) / 1000);
             if (remaining > 0) {
                 sendIPC('heartbeat', {});
 
-                // CAPTION SCRAPING: Look for Teams live captions
+                // PERIODIC STT TRIGGER: If file has grown, transcribe the whole thing to update results
+                // Faster-whisper is fast enough to handle 10min files repeatedy
                 try {
-                    const captions = await page.evaluate(() => {
-                        // Teams captions appear in various containers
-                        const captionElements = document.querySelectorAll(
-                            '[data-tid="closed-caption-text"], ' +
-                            '[class*="caption"], ' +
-                            '[class*="subtitle"], ' +
-                            '[aria-label*="caption"]'
-                        );
-                        return Array.from(captionElements).map(el => el.innerText).join(' ');
-                    });
-
-                    if (captions && captions !== lastCaptionText) {
-                        lastCaptionText = captions;
-                        transcriptLines.push(`[${new Date().toISOString()}] ${captions}`);
-                        console.log(`📝 Caption: ${captions}`);
+                    const stats = fs.statSync(RECORDING_PATH);
+                    if (stats.size > lastTranscriptionSize + (1024 * 50)) { // Every ~50KB (~10-20s of audio)
+                        console.log('🤖 Updating transcript from latest audio...');
+                        const { transcribeAudio } = await import('../stt/service.js');
+                        const result = await transcribeAudio(RECORDING_PATH);
+                        if (result && result.text) {
+                            console.log(`📝 TRANSCRIPT (Update): ${result.text.substring(0, 100)}...`);
+                            fs.writeFileSync(TRANSCRIPT_PATH, result.text);
+                            sendIPC('transcript', result.text);
+                        }
+                        lastTranscriptionSize = stats.size;
                     }
                 } catch (e) {
-                    // Caption scraping failed silently
+                    // Silently fail if file busy
                 }
 
                 console.log(`📸 Bot active - ${remaining}s remaining...`);
             }
-        }, 5000); // Check every 5 seconds
+        }, 15000); // Check every 15s
 
         // Wait for 10 minutes
         await new Promise(r => setTimeout(r, 10 * 60 * 1000));
@@ -555,8 +620,36 @@ const pid = process.pid;
             console.log('ℹ️ No captions captured (live captions may not be enabled)');
         }
 
-        console.log('✅ 2-minute transcription window complete');
-        console.log('🔴 Bot shutting down gracefully...');
+        console.log('✅ Transcription period complete');
+
+        // Stop recording
+        try {
+            await page.evaluate(() => {
+                if (window.meetingMediaRecorder) {
+                    window.meetingMediaRecorder.stop();
+                    console.log('MediaRecorder stopped');
+                }
+            });
+            await new Promise(r => setTimeout(r, 2000)); // Wait for last chunks
+            audioStream.end();
+        } catch (e) {
+            console.error('Error stopping recorder:', e.message);
+        }
+
+        // Trigger STT
+        console.log('🤖 Triggering STT Transcription...');
+        try {
+            const { transcribeAudio } = await import('../stt/service.js');
+            const result = await transcribeAudio(RECORDING_PATH);
+            if (result && result.text) {
+                fs.writeFileSync(TRANSCRIPT_PATH, result.text);
+                console.log(`✅ STT Transcript generated: ${TRANSCRIPT_PATH}`);
+                sendIPC('transcript', result.text);
+            }
+        } catch (sttErr) {
+            console.error('❌ STT Transcription failed:', sttErr.message);
+        }
+
         console.log('🔴 Bot shutting down gracefully...');
 
     } catch (err) {

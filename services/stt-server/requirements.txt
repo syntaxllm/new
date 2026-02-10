@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+faster-whisper
+
+torch
+torchaudio
+python-multipart
+python-dotenv
+asyncio
+aiohttp
