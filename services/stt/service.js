@@ -11,7 +11,7 @@ import path from 'path';
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const STT_SERVICE_URL = process.env.STT_SERVICE_URL || 'http://localhost:8000';
+const STT_SERVICE_URL = process.env.STT_SERVICE_URL || 'http://localhost:4545';
 
 /**
  * Transcribe audio using a multi-stage approach:
@@ -29,7 +29,7 @@ export async function transcribeAudio(filePath) {
         const formData = new FormData();
         const fileBuffer = fs.readFileSync(filePath);
         const fileName = path.basename(filePath);
-        const blob = new Blob([fileBuffer], { type: 'audio/mpeg' });
+        const blob = new Blob([fileBuffer], { type: 'audio/webm' });
         formData.append('file', blob, fileName);
 
         const response = await fetch(`${STT_SERVICE_URL}/transcribe`, {
@@ -42,15 +42,20 @@ export async function transcribeAudio(filePath) {
             const result = await response.json();
             console.log('✅ Local transcription successful');
 
-            // Format 1: Local server returns { transcript: [{text: '...'}, ...] }
-            // Format 2: Cloud APIs return { text: '...' }
-            let combinedText = result.text || '';
+            // Map segments for easy VTT generation
+            let segments = [];
             if (result.transcript && Array.isArray(result.transcript)) {
-                combinedText = result.transcript.map(t => t.text).join(' ');
+                segments = result.transcript.map(t => ({
+                    start: t.start_time,
+                    end: t.end_time,
+                    speaker: t.speaker_id || 'Meeting Participant',
+                    text: t.text
+                }));
             }
 
             return {
-                text: combinedText,
+                text: result.text || segments.map(s => s.text).join(' '),
+                segments: segments, // Pass raw segments for VTT generation
                 language: result.language || 'en',
                 duration: result.duration || 0,
                 method: 'local'
@@ -80,7 +85,7 @@ export async function transcribeAudio(filePath) {
         const formData = new FormData();
         const fileBuffer = fs.readFileSync(filePath);
         const fileName = path.basename(filePath);
-        const blob = new Blob([fileBuffer], { type: 'audio/mpeg' });
+        const blob = new Blob([fileBuffer], { type: 'audio/webm' });
 
         formData.append('file', blob, fileName);
         formData.append('model', modelName);

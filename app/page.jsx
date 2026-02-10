@@ -7,7 +7,7 @@ const Spinner = () => (
 );
 
 // LOG VIEWER COMPONENT
-const LogViewer = ({ onClose, logId }) => {
+const LogViewer = ({ onClose, logId, contained = false }) => {
     const [logs, setLogs] = useState([]);
     const logEndRef = useRef(null);
 
@@ -40,25 +40,30 @@ const LogViewer = ({ onClose, logId }) => {
         }
     }, [logs]);
 
+    const containerClass = contained
+        ? "flex-1 flex flex-col min-h-0 bg-transparent"
+        : "w-[450px] bg-[#1e1e1e] border-l border-teams-border flex flex-col shadow-2xl z-50 absolute right-0 top-12 bottom-0 backdrop-blur-sm bg-opacity-95";
+
     return (
-        <div className="w-[450px] bg-[#1e1e1e] border-l border-teams-border flex flex-col shadow-2xl z-50 absolute right-0 top-12 bottom-0 backdrop-blur-sm bg-opacity-95">
-            {/* Header with LAST STATUS */}
-            <div className="px-4 py-3 bg-[#2d2d2d] border-b border-[#3e3e3e] flex flex-col gap-1">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                        <span className="text-xs font-bold text-gray-400 font-mono">LIVE ACTIVITY</span>
+        <div className={containerClass}>
+            {!contained && (
+                <div className="px-4 py-3 bg-[#2d2d2d] border-b border-[#3e3e3e] flex flex-col gap-1">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                            <span className="text-xs font-bold text-gray-400 font-mono">LIVE ACTIVITY</span>
+                        </div>
+                        <button onClick={onClose} className="text-gray-400 hover:text-white p-1">✕</button>
                     </div>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white p-1">✕</button>
+                    <div className="font-mono text-sm text-white font-bold truncate">
+                        {/* Show last relevant log */}
+                        {(() => {
+                            const relevant = logs.filter(l => ['🤖', '🔗', '✅', '🔍', '✍️', '👆', '⏳', '🔒', '🔴', '📸', '❌', '⚠️', '🟡', '🟢', 'ℹ️', 'IN_MEETING', 'PRE_JOIN', 'JOINING', 'NAVIGATING', 'FAILED'].some(p => l.trim().startsWith(p) || l.includes(p)));
+                            return relevant.length > 0 ? relevant[relevant.length - 1] : 'Ready...';
+                        })()}
+                    </div>
                 </div>
-                <div className="font-mono text-sm text-white font-bold truncate">
-                    {/* Show last relevant log */}
-                    {(() => {
-                        const relevant = logs.filter(l => ['🤖', '🔗', '✅', '🔍', '✍️', '👆', '⏳', '🔒', '🔴', '📸', '❌', '⚠️', '🟡', '🟢', 'ℹ️', 'IN_MEETING', 'PRE_JOIN', 'JOINING', 'NAVIGATING', 'FAILED'].some(p => l.trim().startsWith(p) || l.includes(p)));
-                        return relevant.length > 0 ? relevant[relevant.length - 1] : 'Ready...';
-                    })()}
-                </div>
-            </div>
+            )}
 
             {/* Scrolling History (Filtered) */}
             <div className="flex-1 overflow-auto p-3 font-mono text-[11px] text-gray-400 bg-black/95 leading-relaxed scrollbar-thin scrollbar-thumb-gray-800">
@@ -67,6 +72,7 @@ const LogViewer = ({ onClose, logId }) => {
                     if (!isRelevant) return null; // Hide backend/technical logs
 
                     const isError = line.includes('Error') || line.includes('FAILED') || line.includes('❌');
+                    const isSTT = line.includes('✨') || line.includes('STT') || line.includes('transcription');
 
                     // Parse timestamp if present [2026-...]
                     let displayTime = new Date().toLocaleTimeString('en-US', { hour12: false });
@@ -83,9 +89,12 @@ const LogViewer = ({ onClose, logId }) => {
                     }
 
                     return (
-                        <div key={i} className={`mb-1 pl-2 border-l-2 transition-all duration-300 ${isError ? 'border-red-500 bg-red-900/10' : 'border-transparent hover:border-blue-500'}`}>
+                        <div key={i} className={`mb-1 pl-2 border-l-2 transition-all duration-300 
+                            ${isError ? 'border-red-500 bg-red-900/10' :
+                                isSTT ? 'border-cyan-400 bg-cyan-950/20 text-cyan-300 animate-pulse' :
+                                    'border-transparent hover:border-blue-500'}`}>
                             <span className="text-gray-600 mr-2 text-[10px] tracking-wide">[{displayTime}]</span>
-                            <span className={isError ? 'text-red-400 font-bold' : 'text-green-400/90'}>
+                            <span className={isError ? 'text-red-400 font-bold' : isSTT ? 'text-cyan-300 font-bold' : 'text-green-400/90'}>
                                 {content}
                             </span>
                         </div>
@@ -109,6 +118,7 @@ const LogViewer = ({ onClose, logId }) => {
 export default function MeetingAI() {
     const [meetings, setMeetings] = useState([]);
     const [selectedMeeting, setSelectedMeeting] = useState(null);
+    const [selectedBot, setSelectedBot] = useState(null); // New state for live monitoring
     const [view, setView] = useState('overview');
     const [chatMessages, setChatMessages] = useState([]);
     const [chatInput, setChatInput] = useState('');
@@ -122,6 +132,7 @@ export default function MeetingAI() {
 
     // Bot & Meeting State
     const [activeMeetings, setActiveMeetings] = useState([]);
+    const [activeBots, setActiveBots] = useState([]); // Live bot sessions
     const [manualLink, setManualLink] = useState('');
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [userInfo, setUserInfo] = useState(null);
@@ -141,8 +152,25 @@ export default function MeetingAI() {
     useEffect(() => {
         if (isLoggedIn) {
             loadActiveMeetings();
+            loadActiveBots();
         }
     }, [isLoggedIn]);
+
+    async function loadActiveBots() {
+        try {
+            const res = await fetch('/api/bot/active');
+            if (res.ok) {
+                const data = await res.json();
+                const bots = data.bots || [];
+                setActiveBots(bots);
+
+                // If selected bot is gone, clear it
+                if (selectedBot && !bots.find(b => b.id === selectedBot.id)) {
+                    setSelectedBot(null);
+                }
+            }
+        } catch (e) { console.error('Error loading active bots:', e); }
+    }
 
     useEffect(() => {
         if (view === 'chat' && chatEndRef.current) {
@@ -174,9 +202,18 @@ export default function MeetingAI() {
             setMeetings(data || []);
         } catch (e) {
             console.error(e);
-            setStatus('Error loading meetings.');
+            setStatus('Error loading library.');
         }
     }
+
+    // Auto-refresh library every 10s to show incoming bot transcripts
+    useEffect(() => {
+        const interval = setInterval(() => {
+            loadMeetings();
+            loadActiveBots();
+        }, 10000);
+        return () => clearInterval(interval);
+    }, []);
 
     // --- BOT & MEETING LOGIC ---
 
@@ -208,6 +245,7 @@ export default function MeetingAI() {
             const data = await res.json();
             if (data.success) {
                 if (data.logId) setActiveLogId(data.logId);
+                loadActiveBots(); // Refresh UI immediately
             } else {
                 alert(`❌ Failed: ${data.error}`);
             }
@@ -232,6 +270,7 @@ export default function MeetingAI() {
             if (data.success) {
                 setManualLink('');
                 if (data.logId) setActiveLogId(data.logId);
+                loadActiveBots(); // Refresh UI immediately
             } else {
                 alert(`❌ Failed: ${data.error}`);
             }
@@ -316,10 +355,17 @@ export default function MeetingAI() {
 
     const handleMeetingSelect = (m) => {
         setSelectedMeeting(m);
+        setSelectedBot(null); // Clear live bot selection
         setView('overview');
         setChatMessages([]);
         setSummary(null);
         setActionItems(null);
+    };
+
+    const handleBotSelect = (bot) => {
+        setSelectedBot(bot);
+        setSelectedMeeting(null); // Clear archived meeting
+        setView('live');
     };
 
     const toggleTheme = () => {
@@ -463,38 +509,107 @@ export default function MeetingAI() {
                     <div className="flex-1 flex flex-col overflow-hidden">
                         <h3 className="p-4 pb-2 text-xs uppercase font-bold text-teams-text-secondary">Library</h3>
                         <div className="flex-1 overflow-y-auto px-2 space-y-1">
-                            {meetings.length === 0 && <div className="px-2 py-4 text-sm text-center text-teams-text-secondary/70 italic">No transcripts found.</div>}
-                            {meetings.map(m => (
+                            {/* Live Active Bots Placeholder */}
+                            {activeBots.map(bot => (
                                 <div
-                                    key={m.meetingId}
-                                    className={`group relative p-3 rounded-md cursor-pointer border-l-4 ${selectedMeeting?.meetingId === m.meetingId ? 'bg-black/20 border-teams-primary' : 'border-transparent hover:bg-white/5'}`}
-                                    onClick={() => handleMeetingSelect(m)}
+                                    key={bot.id}
+                                    onClick={() => handleBotSelect(bot)}
+                                    className={`p-3 rounded-md border-l-4 cursor-pointer mb-2 transition-all ${selectedBot?.id === bot.id ? 'bg-green-500/20 border-green-500 ring-1 ring-green-500' : 'bg-green-900/10 border-green-500 hover:bg-green-900/20'
+                                        } ${bot.status === 'IN_MEETING' ? 'animate-pulse' : ''}`}
                                 >
-                                    <h4 className="font-semibold truncate text-sm">{m.meetingId}</h4>
-                                    <p className="text-xs text-teams-text-secondary">{m.entries?.length || 0} segments • {new Date(m.importedAt || Date.now()).toLocaleDateString()}</p>
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); handleDeleteMeeting(m.meetingId); }}
-                                        className="absolute top-2 right-2 p-1 text-red-500 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-500/20"
-                                        title="Delete Meeting"
-                                    >
-                                        ✘
-                                    </button>
+                                    <div className="flex items-center justify-between mb-1">
+                                        <h4 className="font-semibold text-sm text-green-400">
+                                            {bot.status === 'LAUNCHING' || bot.status === 'NAVIGATING' ? 'Initializing Bot...' :
+                                                bot.status === 'IN_LOBBY' ? 'Waiting in Lobby...' : 'Live Recording...'}
+                                        </h4>
+                                        <span className={`text-[9px] px-1 rounded-sm font-bold uppercase tracking-tighter ${bot.status === 'IN_MEETING' ? 'bg-green-500 text-black' : 'bg-amber-500 text-black'
+                                            }`}>
+                                            {bot.status}
+                                        </span>
+                                    </div>
+                                    <p className="text-[10px] text-green-400/70 truncate">{bot.metadata?.subject || 'Meeting in progress'}</p>
+                                    {bot.currentSpeaker && (
+                                        <div className="mt-2 flex items-center gap-2 text-[10px] text-white/80 bg-green-500/20 px-2 py-1 rounded">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-[ping_1.5s_linear_infinite]" />
+                                            <span>Speaking: <span className="font-bold">{bot.currentSpeaker}</span></span>
+                                        </div>
+                                    )}
                                 </div>
                             ))}
+
+                            {meetings.length === 0 && activeBots.length === 0 && (
+                                <div className="px-2 py-4 text-sm text-center text-teams-text-secondary/70 italic">
+                                    No transcripts found.
+                                </div>
+                            )}
+
+                            {meetings.map(m => {
+                                const isRecent = new Date(m.importedAt) > new Date(Date.now() - 12 * 60 * 60 * 1000);
+                                return (
+                                    <div
+                                        key={m.meetingId}
+                                        className={`group relative p-3 rounded-md cursor-pointer border-l-4 ${selectedMeeting?.meetingId === m.meetingId ? 'bg-black/20 border-teams-primary' : 'border-transparent hover:bg-white/5'}`}
+                                        onClick={() => handleMeetingSelect(m)}
+                                    >
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <h4 className="font-semibold truncate text-sm">
+                                                {m.subject || m.meetingId}
+                                            </h4>
+                                            {isRecent && <span className="text-[9px] bg-teams-primary/20 text-teams-primary px-1 rounded-sm font-bold border border-teams-primary/30">RECENT</span>}
+                                        </div>
+                                        <p className="text-xs text-teams-text-secondary">
+                                            {m.entries?.length || 0} segments • {new Date(m.importedAt || Date.now()).toLocaleDateString()}
+                                        </p>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleDeleteMeeting(m.meetingId); }}
+                                            className="absolute top-2 right-2 p-1 text-red-500 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-500/20"
+                                            title="Delete Meeting"
+                                        >
+                                            ✘
+                                        </button>
+                                    </div>
+                                );
+                            })}
                         </div>
-                        <div className="p-4 border-t border-teams-border">
-                            <input id="file-upload" type="file" onChange={doUpload} accept=".vtt" className="hidden" />
-                            <button className="w-full bg-white/10 hover:bg-white/20 text-teams-text-primary font-semibold py-2 px-4 rounded-md text-sm"
-                                onClick={() => document.getElementById('file-upload').click()}>
-                                Upload VTT
-                            </button>
-                        </div>
+                    </div>
+                    <div className="p-4 border-t border-teams-border">
+                        <input id="file-upload" type="file" onChange={doUpload} accept=".vtt" className="hidden" />
+                        <button className="w-full bg-white/10 hover:bg-white/20 text-teams-text-primary font-semibold py-2 px-4 rounded-md text-sm"
+                            onClick={() => document.getElementById('file-upload').click()}>
+                            Upload VTT
+                        </button>
                     </div>
                 </div>
 
                 {/* Main Content (Center) */}
                 <main className="flex-1 flex flex-col bg-teams-bg overflow-hidden relative">
-                    {selectedMeeting ? (
+                    {selectedBot ? (
+                        <div className="flex-1 flex flex-col p-6 space-y-6">
+                            <div className="bg-teams-surface rounded-lg shadow-lg p-8 flex flex-col items-center justify-center text-center space-y-4">
+                                <div className="w-16 h-16 rounded-full border-4 border-green-500 border-t-transparent animate-spin mb-4" />
+                                <h2 className="text-2xl font-bold text-green-400">Live Meeting Session</h2>
+                                <p className="text-teams-text-secondary max-w-md">
+                                    The bot is currently processed the meeting <b>{selectedBot.metadata?.subject || 'Untitled'}</b>.
+                                    Segments will appear in your library automatically once processed.
+                                </p>
+                                <div className="flex gap-4 mt-4">
+                                    <div className="px-4 py-2 rounded bg-white/5 border border-white/10 text-xs font-mono">
+                                        Status: <span className="text-green-400">{selectedBot.status}</span>
+                                    </div>
+                                    <div className="px-4 py-2 rounded bg-white/5 border border-white/10 text-xs font-mono">
+                                        ID: <span className="text-teams-text-secondary">{selectedBot.id}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex-1 bg-black/40 rounded-lg p-4 font-mono text-[11px] overflow-hidden flex flex-col">
+                                <h3 className="text-xs uppercase font-bold text-white/40 mb-2">Live Bot Logs</h3>
+                                <div className="flex-1 overflow-y-auto space-y-1 scrollbar-hide">
+                                    <LogViewer logId={selectedBot.id} contained={true} />
+                                </div>
+                            </div>
+                        </div>
+                    ) : selectedMeeting ? (
                         <>
                             {/* Stage Header */}
                             <div className="flex-shrink-0 p-6 border-b border-teams-border bg-teams-surface">

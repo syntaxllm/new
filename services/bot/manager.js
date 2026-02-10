@@ -52,6 +52,7 @@ class BotManager extends EventEmitter {
             status: BotState.CREATED,
             process: null,
             logs: [],
+            speakerEvents: [], // Log of [{name, timestamp}] for diarization
             startTime: new Date(),
             lastHeartbeat: Date.now()
         };
@@ -101,6 +102,11 @@ class BotManager extends EventEmitter {
 
                 // CRITICAL: Log this to the file so the UI knows to stop polling
                 this.addBotLog(id, `Process exited with code ${code}. Status: ${finalStatus}`, 'system');
+
+                // AUTOMATIC FINALIZATION
+                if (botSession.metadata?.meetingId) {
+                    this.finalizeMeeting(id);
+                }
             });
 
             return botSession;
@@ -150,6 +156,10 @@ class BotManager extends EventEmitter {
         // Return array of bots without the process object to avoid circular JSON issues
         return Array.from(this.bots.values()).map(b => {
             const { process, ...safeBot } = b;
+            // Add current speaker for UI feedback
+            safeBot.currentSpeaker = b.speakerEvents?.length > 0
+                ? b.speakerEvents[b.speakerEvents.length - 1].name
+                : null;
             return safeBot;
         });
     }
@@ -207,18 +217,122 @@ class BotManager extends EventEmitter {
         } else if (msg.type === 'heartbeat') {
             session.lastHeartbeat = Date.now();
         } else if (msg.type === 'transcript') {
-            console.log(`[BotManager] Received transcript update for ${session.metadata?.meetingId || id} (${msg.payload.length} chars)`);
-            session.transcript = msg.payload;
+            const result = msg.payload; // This is now the full result object
+            console.log(`[BotManager] Received transcript update for ${session.metadata?.meetingId || id} (${result.segments?.length || 0} segments)`);
 
-            // SYNC TO DATABASE if meetingId exists
+            // 1. Generate professional VTT content from segments
+            const vttContent = this.generateVTT(result.segments || [], session.metadata?.subject);
+            session.vttContent = vttContent;
+
+            // 2. Sync to Database via Backend Adapter
             if (session.metadata?.meetingId) {
                 try {
                     const { ingestBotTranscript } = await import('../../lib/backend-adapter.js');
-                    await ingestBotTranscript(session.metadata.meetingId, msg.payload, session.metadata);
+                    // We now pass the VTT content instead of raw text
+                    await ingestBotTranscript(session.metadata.meetingId, vttContent, session.metadata);
                 } catch (e) {
-                    console.error('[BotManager] Failed to sync transcript to DB:', e.message);
+                    console.error('[BotManager] Failed to sync VTT to DB:', e.message);
                 }
             }
+        } else if (msg.type === 'stt-success') {
+            const meetingId = session.metadata?.meetingId || id;
+            console.log(`[BotManager] ✨ SUCCESS: ${meetingId} transcribed ${msg.payload.count || 0} lines.`);
+            this.addBotLog(id, `✨ Transcription sync successful (${msg.payload.count || 0} lines)`, 'stt');
+        } else if (msg.type === 'stt-error') {
+            console.error(`[BotManager] ❌ STT ERROR (${id}):`, msg.payload.error);
+            this.addBotLog(id, `❌ Transcription error: ${msg.payload.error}`, 'error');
+        } else if (msg.type === 'speaker-change') {
+            // Track who is speaking for diarization stitching
+            session.speakerEvents.push({
+                name: msg.payload.name,
+                timestamp: msg.payload.timestamp
+            });
+            this.addBotLog(id, `🎤 Speaker: ${msg.payload.name}`, 'info');
+        } else if (msg.type === 'recording-start') {
+            session.recordingStartTime = msg.payload.timestamp;
+            this.addBotLog(id, '🎤 Microphones active - transcription sync enabled.', 'info');
+        }
+    }
+
+    /**
+     * Convert STT segments to standard WEBVTT format
+     */
+    generateVTT(segments, subject = 'Meeting Participant') {
+        const lines = ['WEBVTT', ''];
+
+        // Get the session speaker events if available (we need to find the session)
+        // Note: In a real app we'd pass the session context explicitly
+        // Here we'll try to find it or fallback to the subject
+        let speakerEvents = [];
+        const session = Array.from(this.bots.values()).find(b => b.metadata?.subject === subject);
+        if (session) speakerEvents = session.speakerEvents || [];
+
+        segments.forEach((s, i) => {
+            const formatTime = (seconds) => {
+                const date = new Date(0);
+                date.setSeconds(seconds);
+                const ms = Math.floor((seconds % 1) * 1000);
+                return date.toISOString().substr(11, 8) + '.' + String(ms).padStart(3, '0');
+            };
+
+            const start = formatTime(s.start);
+            const end = formatTime(s.end);
+
+            // DIARIZATION STITCHING: Absolute time sync
+            let speaker = 'Participant';
+            if (session && speakerEvents.length > 0) {
+                // Use recordingStartTime (precise) or startTime (fallback)
+                const anchorTime = session.recordingStartTime || session.startTime.getTime();
+                const segmentWallTime = anchorTime + (s.start * 1000);
+
+                // Find most recent speaker event that occurred at or before this segment
+                const activeEvent = [...speakerEvents]
+                    .reverse()
+                    .find(e => e.timestamp <= segmentWallTime + 2000); // 2s buffer for UI pulse delay
+
+                if (activeEvent) speaker = activeEvent.name;
+                else speaker = speakerEvents[0].name; // Fallback to first participant
+            } else {
+                speaker = s.speaker || subject || 'Speaker';
+            }
+
+            lines.push(`bot-segment/${i}`);
+            lines.push(`${start} --> ${end}`);
+            lines.push(`<v ${speaker}>${s.text}</v>`);
+            lines.push(''); // Empty line between entries
+        });
+
+        return lines.join('\n');
+    }
+
+    /**
+     * Finalize meeting after bot exit (Background AI Tasks)
+     */
+    async finalizeMeeting(id) {
+        const session = this.bots.get(id);
+        if (!session || !session.metadata?.meetingId) return;
+
+        const meetingId = session.metadata.meetingId;
+        console.log(`[BotManager] 🏁 Finalizing meeting ${meetingId}...`);
+
+        try {
+            // Give the database a moment to settle last transcript chunks
+            await new Promise(r => setTimeout(r, 5000));
+
+            // We use the internal URL or localhost
+            const baseUrl = 'http://localhost:3000';
+
+            console.log(`[BotManager] Triggering AI Summary for ${meetingId}`);
+            const summaryRes = await fetch(`${baseUrl}/api/summary/${meetingId}`);
+
+            console.log(`[BotManager] Triggering Action Items for ${meetingId}`);
+            const actionRes = await fetch(`${baseUrl}/api/actions/${meetingId}`);
+
+            this.addBotLog(id, '✨ AI Finalization successful: Summary and Action Items generated.', 'info');
+            console.log(`[BotManager] ✅ Meeting ${meetingId} fully processed.`);
+        } catch (e) {
+            console.error(`[BotManager] ❌ Finalization failed for ${meetingId}:`, e.message);
+            this.addBotLog(id, `⚠️ Finalization error: ${e.message}`, 'error');
         }
     }
 }

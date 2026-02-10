@@ -5,21 +5,21 @@ from fastapi import FastAPI, UploadFile, File, BackgroundTasks, Form
 from pydantic import BaseModel
 import torch
 from faster_whisper import WhisperModel
-# from pyannote.audio import Pipeline # Will need token
 import uuid
-
 import sys
 
+# Initialize FastAPI
 app = FastAPI(title="MeetingAI STT Service")
 
 print(f"🚀 STT Service Starting on Python {sys.version}")
 
-
-# Load Whisper Model
-# Using 'base' or 'small' for dev to be fast
+# Load Whisper Model - Upgraded to 'turbo' for maximum accuracy/speed ratio
 device = "cuda" if torch.cuda.is_available() else "cpu"
-model_size = os.getenv("WHISPER_MODEL_SIZE", "base")
-model = WhisperModel(model_size, device=device, compute_type="float32")
+model_size = os.getenv("WHISPER_MODEL_SIZE", "turbo") # v3-turbo is the sweet spot
+# Using float32 for CPU compatibility, int8_float16 or float16 for CUDA
+compute_type = "float32" if device == "cpu" else "float16" 
+
+model = WhisperModel(model_size, device=device, compute_type=compute_type)
 
 class TranscriptEntry(BaseModel):
     start_time: float
@@ -51,15 +51,6 @@ async def transcribe(
     if not meeting_id:
         meeting_id = str(uuid.uuid4())
     
-    # Parse real speaker names if provided
-    real_speakers = []
-    if speaker_names:
-        try:
-            import json
-            real_speakers = json.loads(speaker_names)
-        except:
-            pass
-
     start_ts = time.time()
     
     # Create recordings directory if not exists
@@ -76,56 +67,45 @@ async def transcribe(
         print(f"📁 Received {len(content)} bytes. Saved to: {file_path}")
     
     try:
-        # 1. Transcribe with faster-whisper + Silero VAD
+        # 1. Transcribe with faster-whisper
         print(f"🎙️ Starting transcription for {meeting_id}...")
         segments, info = model.transcribe(
             file_path, 
             beam_size=5, 
             vad_filter=True, 
-            vad_parameters=dict(min_silence_duration_ms=500)
+            vad_parameters=dict(min_silence_duration_ms=500),
+            initial_prompt="This is a Microsoft Teams meeting transcript. Capture all participant names and technical terms accurately.",
+            repetition_penalty=1.1 # Prevent looping on background noise
         )
         
-        transcript = []
+        transcript_entries = []
         for segment in segments:
-            # Map segment timestamp to the closest real speaker name from the log
-            speaker_id = "SPEAKER_00"
-            if real_speakers:
-                # Find speaker active at this segment's start time
-                # log: [{name, timestamp}, ...]
-                current_speaker = "Unknown"
-                # Use a simple heuristic: who was speaking MOST RECENTLY before this segment started?
-                # Sort speakers by timestamp just in case
-                sorted_speakers = sorted(real_speakers, key=lambda x: x['timestamp'])
-                
-                for entry in sorted_speakers:
-                    if entry['timestamp'] <= segment.start + 1.0: # Add 1s buffer/overlap
-                        current_speaker = entry['name']
-                    else:
-                        break
-                speaker_id = current_speaker
-
-            transcript.append(TranscriptEntry(
+            # For now, speaker_id is a placeholder. 
+            # In a full flow, this would come from diarization or UI metadata.
+            speaker_id = "Meeting Participant" 
+            
+            transcript_entries.append(TranscriptEntry(
                 start_time=segment.start,
                 end_time=segment.end,
-                speaker_id=speaker_id, 
+                speaker_id=speaker_id,
                 text=segment.text.strip()
             ))
-            
-        full_text = " ".join([t.text for t in transcript])
-        print(f"✅ Transcribed {len(transcript)} segments. Text: {full_text[:100]}...")
-        
+            # Immediate feedback in terminal
+            print(f"[{segment.start:.2f}s -> {segment.end:.2f}s] {segment.text.strip()}")
+
         end_ts = time.time()
+        print(f"✅ Transcribed {len(transcript_entries)} segments in {end_ts - start_ts:.2f}s")
         
         return TranscriptionResponse(
             meeting_id=meeting_id,
             status="completed",
-            transcript=transcript,
+            transcript=transcript_entries,
             duration=end_ts - start_ts,
-            audio_path=filename # Return relative path
+            audio_path=filename
         )
+        
     except Exception as e:
         print(f"❌ Transcription failed: {str(e)}")
-        # Delete on error only
         if os.path.exists(file_path):
             os.remove(file_path)
         raise e
