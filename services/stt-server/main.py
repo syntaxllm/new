@@ -71,12 +71,13 @@ async def transcribe(
     file_path = os.path.join(storage_dir, filename)
     
     with open(file_path, "wb") as f:
-        f.write(await file.read())
+        content = await file.read()
+        f.write(content)
+        print(f"📁 Received {len(content)} bytes. Saved to: {file_path}")
     
-    print(f"📁 Audio saved to: {file_path}")
-
     try:
         # 1. Transcribe with faster-whisper + Silero VAD
+        print(f"🎙️ Starting transcription for {meeting_id}...")
         segments, info = model.transcribe(
             file_path, 
             beam_size=5, 
@@ -110,6 +111,9 @@ async def transcribe(
                 text=segment.text.strip()
             ))
             
+        full_text = " ".join([t.text for t in transcript])
+        print(f"✅ Transcribed {len(transcript)} segments. Text: {full_text[:100]}...")
+        
         end_ts = time.time()
         
         return TranscriptionResponse(

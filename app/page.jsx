@@ -199,7 +199,11 @@ export default function MeetingAI() {
             const res = await fetch('/api/bot/launch', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ joinUrl: meeting.webUrl })
+                body: JSON.stringify({
+                    joinUrl: meeting.webUrl,
+                    meetingId: meeting.id,
+                    subject: meeting.subject
+                })
             });
             const data = await res.json();
             if (data.success) {

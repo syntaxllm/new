@@ -41,16 +41,24 @@ export async function transcribeAudio(filePath) {
         if (response.ok) {
             const result = await response.json();
             console.log('✅ Local transcription successful');
+
+            // Format 1: Local server returns { transcript: [{text: '...'}, ...] }
+            // Format 2: Cloud APIs return { text: '...' }
+            let combinedText = result.text || '';
+            if (result.transcript && Array.isArray(result.transcript)) {
+                combinedText = result.transcript.map(t => t.text).join(' ');
+            }
+
             return {
-                text: result.text || '',
+                text: combinedText,
                 language: result.language || 'en',
                 duration: result.duration || 0,
                 method: 'local'
             };
         }
-        console.warn(`[STT Service] Local service returned ${response.status}. Falling back to Cloud.`);
+        console.warn(`[STT Service] Local service returned ${response.status}: ${await response.text()}`);
     } catch (localErr) {
-        console.log(`[STT Service] Local transcription unavailable: ${localErr.message}. Falling back to Cloud.`);
+        console.log(`[STT Service] Local transcription error: ${localErr.message}. Falling back to Cloud.`);
     }
 
     // --- STAGE 2: CLOUD TRANSCRIPTION (OpenAI/Groq) ---

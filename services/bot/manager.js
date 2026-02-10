@@ -29,9 +29,10 @@ class BotManager extends EventEmitter {
     /**
      * Launch a new bot instance
      * @param {string} joinUrl - The Teams meeting URL
+     * @param {object} metadata - Optional metadata (meetingId, userId, subject)
      * @returns {object} - The bot session object
      */
-    launchBot(joinUrl) {
+    launchBot(joinUrl, metadata = {}) {
         // DUPLICATE CHECK: Don't launch if already running for this URL
         const existingId = Array.from(this.bots.entries())
             .find(([_, b]) => b.joinUrl === joinUrl && b.status !== BotState.ENDED && b.status !== BotState.FAILED && b.status !== BotState.KILLED)?.[0];
@@ -42,12 +43,12 @@ class BotManager extends EventEmitter {
         }
 
         const id = crypto.randomUUID();
-        // Ensure we are getting the correct path to bot.js
         const scriptPath = path.resolve(process.cwd(), 'services', 'bot', 'bot.js');
 
         const botSession = {
             id,
             joinUrl,
+            metadata, // Store meetingId, userId, etc
             status: BotState.CREATED,
             process: null,
             logs: [],
@@ -58,14 +59,14 @@ class BotManager extends EventEmitter {
         this.bots.set(id, botSession);
         this.emit('bot-update', botSession);
 
-        console.log(`[BotManager] Spawning bot ${id} for ${joinUrl}`);
+        console.log(`[BotManager] Spawning bot ${id} for meeting ${metadata.meetingId || 'Manual'}`);
 
         try {
-            // Spawn the bot process
-            // Note: We use 'detached: false' to keep it linked to this manager for now, 
-            // but in a full service architecture, we might want detached.
-            // Using IPC for communication.
-            const child = spawn('node', [scriptPath, joinUrl], {
+            // Pass joining URL AND meetingId as args
+            const args = [scriptPath, joinUrl];
+            if (metadata.meetingId) args.push(metadata.meetingId);
+
+            const child = spawn('node', args, {
                 stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
                 detached: false
             });
@@ -194,16 +195,30 @@ class BotManager extends EventEmitter {
         }
     }
 
-    handleBotMessage(id, msg) {
+    async handleBotMessage(id, msg) {
         // Handle structured IPC messages from bot
-        // Expected format: { type: 'status'|'log'|'heartbeat', payload: ... }
+        const session = this.bots.get(id);
+        if (!session) return;
+
         if (msg.type === 'status') {
             this.updateBotStatus(id, msg.payload);
         } else if (msg.type === 'log') {
             this.addBotLog(id, msg.payload);
         } else if (msg.type === 'heartbeat') {
-            const session = this.bots.get(id);
-            if (session) session.lastHeartbeat = Date.now();
+            session.lastHeartbeat = Date.now();
+        } else if (msg.type === 'transcript') {
+            console.log(`[BotManager] Received transcript update for ${session.metadata?.meetingId || id} (${msg.payload.length} chars)`);
+            session.transcript = msg.payload;
+
+            // SYNC TO DATABASE if meetingId exists
+            if (session.metadata?.meetingId) {
+                try {
+                    const { ingestBotTranscript } = await import('../../lib/backend-adapter.js');
+                    await ingestBotTranscript(session.metadata.meetingId, msg.payload, session.metadata);
+                } catch (e) {
+                    console.error('[BotManager] Failed to sync transcript to DB:', e.message);
+                }
+            }
         }
     }
 }

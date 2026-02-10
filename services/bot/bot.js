@@ -10,7 +10,7 @@ import path from 'path';
 const MEETING_URL = process.argv[2];
 
 if (!MEETING_URL) {
-    console.error("Please provide a Teams URL!");
+    console.error(" FATAL: MEETING_URL is not defined");
     process.exit(1);
 }
 
@@ -19,6 +19,10 @@ const RECORDINGS_DIR = path.resolve(process.cwd(), 'recordings');
 if (!fs.existsSync(RECORDINGS_DIR)) fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
 const RECORDING_PATH = path.resolve(RECORDINGS_DIR, `meeting-${timestamp}.webm`);
 const TRANSCRIPT_PATH = path.resolve(RECORDINGS_DIR, `transcript-${timestamp}.txt`);
+
+function log(msg) {
+    console.log(`[BOT] ${msg}`);
+}
 
 // Helper to safely send IPC messages
 function sendIPC(type, payload) {
@@ -49,7 +53,10 @@ const pid = process.pid;
             '--disable-setuid-sandbox',
             '--disable-notifications',
             '--use-fake-ui-for-media-stream',
-            // We removed --use-fake-device-for-media-stream to stop the green screen
+            '--use-fake-device-for-media-stream',
+            // Hardcorded silence and black frame to prevent ANY meeting disruption
+            '--use-file-for-fake-audio-capture=NUL',
+            '--use-file-for-fake-video-capture=NUL',
             '--disable-infobars',
             '--ignore-certificate-errors',
             '--disable-gpu',
@@ -62,13 +69,27 @@ const pid = process.pid;
     const pages = await browser.pages();
     const page = pages[0] || await browser.newPage();
 
+    // Catch browser console logs
+    page.on('console', msg => {
+        const text = msg.text();
+        if (text.includes('%c')) return; // Skip styled noise
+        log(`[BROWSER] ${text}`);
+    });
+
     // Create a write stream for the audio data
     const audioStream = fs.createWriteStream(RECORDING_PATH);
 
     // Expose a function to the page to receive audio chunks
+    let totalBytesReceived = 0;
     await page.exposeFunction('sendAudioChunk', (chunkBase64) => {
         const buffer = Buffer.from(chunkBase64, 'base64');
         audioStream.write(buffer);
+        totalBytesReceived += buffer.length;
+
+        // Log every ~50KB to show life
+        if (Math.floor(totalBytesReceived / (1024 * 50)) > Math.floor((totalBytesReceived - buffer.length) / (1024 * 50))) {
+            log(`🎤 Audio Chunk Saved (${Math.round(totalBytesReceived / 1024)}KB total)`);
+        }
     });
 
     // Set viewport explicitly
@@ -103,16 +124,13 @@ const pid = process.pid;
         // Handle "Open in app" popup first
         for (let i = 0; i < 3; i++) {
             try {
-                // Look for and close "Open in app" popups
                 const openInAppBtn = await page.$('button:has-text("Open in app"), button:has-text("Open app")');
                 if (openInAppBtn) {
-                    console.log('✅ Closing "Open in app" popup');
+                    log('✅ Bypassing app-open popup');
                     await openInAppBtn.click();
                     await new Promise(r => setTimeout(r, 1000));
                 }
-            } catch (e) {
-                // No popup found, continue
-            }
+            } catch (e) { }
         }
 
         // Retry loop for clicking the landing page button
@@ -171,78 +189,62 @@ const pid = process.pid;
 
         // --- STEP 2: PRE-JOIN SCREEN ---
         sendIPC('status', 'PRE_JOIN');
-        console.log(`[${new Date().toISOString()}] 🔍 Waiting for Pre-Join Controls...`);
+        log('🔍 Preparing to join meeting...');
         try {
-            // Increased timeout to 60s for slow loading
-            await page.waitForSelector('input[data-tid="prejoin-display-name-input"]', { timeout: 60000 });
-            console.log(`[${new Date().toISOString()}] ✅ Guest input found`);
+            await page.waitForSelector('input[data-tid="prejoin-display-name-input"]', { timeout: 30000 });
+            log('✅ Join screen detected');
         } catch (e) {
-            console.log('⚠️ Timed out waiting for Pre-Join UI. Taking screenshot...');
-            await page.screenshot({ path: 'recordings/debug-stuck-prejoin.png' });
-            const bodyText = await page.evaluate(() => document.body.innerText);
-            console.log('--- PAGE DUMP ---\n', bodyText, '\n-------------------');
-            const buttons = await page.evaluate(() => Array.from(document.querySelectorAll('button')).map(b => b.innerText));
-            console.log('Buttons found:', buttons);
+            log('⚠️ Pre-Join UI loading slowly, proceeding anyway...');
         }
 
+        // --- STEP 2.2: ENTER NAME ---
         const nameInput = await page.$('input[data-tid="prejoin-display-name-input"], input[id^="username"], input[type="text"]');
         if (nameInput) {
-            console.log('✍️ Entering Name...');
-            // Clear existing text if any (robust typing)
+            log('✍️ Setting bot name...');
             await nameInput.click({ clickCount: 3 });
             await nameInput.press('Backspace');
             await nameInput.type('MeetingAI Bot');
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, 500));
         }
 
-        // ... [Skipping to Step 3 Join Logic] ...
-
-        // --- STEP 2.5: DISABLE CAMERA AND MIC (SILENT MODE) ---
-        console.log('🔇 Disabling Camera and Mic...');
+        // --- STEP 2.5: FORCE DISABLE CAMERA AND MIC (SILENT MODE) ---
+        log('🔇 Ensuring Camera and Mic are OFF...');
         try {
-            // Updated selectors for Teams New UI
-            const cameraBtn = await page.$('button[data-tid="toggle-video"], [aria-label*="camera" i], [aria-label*="video" i]');
-            if (cameraBtn) {
-                const isCameraOn = await page.evaluate(btn => {
-                    const ariaPressed = btn.getAttribute('aria-pressed');
-                    const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
-                    return ariaPressed === 'true' || ariaLabel.includes('turn off');
-                }, cameraBtn);
-                if (isCameraOn) {
-                    await cameraBtn.click();
-                    console.log('📷 Camera turned OFF');
-                } else {
-                    console.log('📷 Camera already OFF');
-                }
-            } else {
-                console.log('📷 Camera button not found');
-            }
+            await page.evaluate(() => {
+                const buttons = Array.from(document.querySelectorAll('button'));
 
-            const micBtn = await page.$('button[data-tid="toggle-mute"], [aria-label*="microphone" i], [aria-label*="mute" i]');
-            if (micBtn) {
-                const isMicOn = await page.evaluate(btn => {
-                    const ariaPressed = btn.getAttribute('aria-pressed');
-                    const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
-                    return ariaPressed === 'true' || ariaLabel.includes('turn off') || ariaLabel.includes('mute');
-                }, micBtn);
-                if (isMicOn) {
-                    await micBtn.click();
-                    console.log('🎤 Microphone turned OFF');
-                } else {
-                    console.log('🎤 Microphone already OFF');
-                }
-            } else {
-                console.log('🎤 Microphone button not found');
-            }
+                const muteDevice = (keywords) => {
+                    const btn = buttons.find(b => {
+                        const label = (b.ariaLabel || '').toLowerCase();
+                        const text = (b.innerText || '').toLowerCase();
+                        return keywords.some(k => label.includes(k) || text.includes(k));
+                    });
+
+                    if (btn) {
+                        const label = (btn.ariaLabel || '').toLowerCase();
+                        const isCurrentlyOn = btn.ariaPressed === 'true' ||
+                            label.includes('turn off') ||
+                            label.includes('mute');
+
+                        // Only click if it's currently "ON"
+                        if (isCurrentlyOn && !label.includes('turn on')) {
+                            btn.click();
+                        }
+                    }
+                };
+
+                muteDevice(['camera', 'video']);
+                muteDevice(['microphone', 'mic', 'mute']);
+            });
             await new Promise(r => setTimeout(r, 1000));
         } catch (e) {
-            console.log('⚠️ Could not toggle cam/mic:', e.message);
+            log('⚠️ Pre-join mute failed: ' + e.message);
         }
 
-        // --- STEP 3: JOIN (PRODUCTION-GRADE STRATEGY) ---
+        // --- STEP 3: JOIN ---
         sendIPC('status', 'JOINING');
-        console.log('👆 Attempting to JOIN...');
-        await new Promise(r => setTimeout(r, 3000)); // Allow media checks
+        log('👆 Joining meeting...');
+        await new Promise(r => setTimeout(r, 1500));
 
         let joinClicked = false;
 
@@ -390,14 +392,60 @@ const pid = process.pid;
                 });
 
                 if (clickSuccess) {
-                    console.log('✅ Clicked SECOND "Join now" button (audio modal)');
-                    await new Promise(r => setTimeout(r, 3000)); // Wait for join to process
+                    log('✅ Clicked SECOND "Join now" button');
 
-                    // Take screenshot after clicking
-                    try {
-                        await page.screenshot({ path: path.resolve(debugPath, 'after-second-join.png') });
-                        console.log('📸 Screenshot: after-second-join.png');
-                    } catch (e) { }
+                    // START LISTENING IMMEDIATELY (Don't wait for confirmation)
+                    log('🎤 Starting LISTEN MODE immediately...');
+                    await page.evaluate(async () => {
+                        console.log('[BROWSER] Initializing Virtual Ear...');
+                        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                        const dest = ctx.createMediaStreamDestination();
+
+                        const captureAudio = () => {
+                            // Teams uses BOTH audio and video tags for meeting sounds
+                            const elements = [...document.querySelectorAll('audio'), ...document.querySelectorAll('video')];
+                            let found = 0;
+                            elements.forEach(el => {
+                                if (el.srcObject && !el.dataset.captured) {
+                                    try {
+                                        el.dataset.captured = 'true';
+                                        const source = ctx.createMediaStreamSource(el.srcObject);
+                                        source.connect(dest);
+                                        found++;
+                                    } catch (err) {
+                                        console.error('[BROWSER] Capture error:', err.message);
+                                    }
+                                }
+                            });
+                            if (found > 0) console.log(`[BROWSER] Captured ${found} new audio sources`);
+                        };
+
+                        // Crucial: Resume context if suspended
+                        if (ctx.state === 'suspended') {
+                            await ctx.resume();
+                            console.log('[BROWSER] AudioContext resumed');
+                        }
+
+                        setInterval(captureAudio, 3000);
+                        captureAudio();
+
+                        const stream = dest.stream;
+                        const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+
+                        mediaRecorder.ondataavailable = async (e) => {
+                            if (e.data.size > 0) {
+                                const reader = new FileReader();
+                                reader.onload = () => window.sendAudioChunk(reader.result.split(',')[1]);
+                                reader.readAsDataURL(e.data);
+                            }
+                        };
+
+                        mediaRecorder.onstart = () => console.log('[BROWSER] MediaRecorder active');
+                        mediaRecorder.start(1000);
+                        window.meetingMediaRecorder = mediaRecorder;
+                    });
+
+                    await new Promise(r => setTimeout(r, 3000));
                 } else {
                     console.log('⚠️ Audio modal detected but no Join button found');
                 }
@@ -405,7 +453,7 @@ const pid = process.pid;
                 console.log('ℹ️ No audio modal detected (may have auto-joined)');
             }
         } catch (e) {
-            console.log(`⚠️ Audio modal handling error: ${e.message}`);
+            log(`⚠️ Join process error: ${e.message}`);
         }
 
         // --- STEP 4: STATE CONFIRMATION (LOBBY vs IN_MEETING vs TIMEOUT) ---
@@ -583,28 +631,41 @@ const pid = process.pid;
             if (remaining > 0) {
                 sendIPC('heartbeat', {});
 
-                // PERIODIC STT TRIGGER: If file has grown, transcribe the whole thing to update results
-                // Faster-whisper is fast enough to handle 10min files repeatedy
+                // SAFETY SWEEP: Ensure mic/cam didn't accidentally turn on
+                try {
+                    await page.evaluate(() => {
+                        const toolbarButtons = Array.from(document.querySelectorAll('button[aria-label*="camera" i], button[aria-label*="mic" i], button[aria-label*="mute" i]'));
+                        toolbarButtons.forEach(btn => {
+                            const label = (btn.ariaLabel || '').toLowerCase();
+                            const isCurrentlyOn = btn.ariaPressed === 'true' || label.includes('turn off') || label.includes('mute');
+                            if (isCurrentlyOn && !label.includes('turn on')) {
+                                btn.click();
+                            }
+                        });
+                    });
+                } catch (e) { }
+
+                // PERIODIC STT TRIGGER: If file has grown, transcribe
                 try {
                     const stats = fs.statSync(RECORDING_PATH);
-                    if (stats.size > lastTranscriptionSize + (1024 * 50)) { // Every ~50KB (~10-20s of audio)
-                        console.log('🤖 Updating transcript from latest audio...');
+                    if (stats.size > lastTranscriptionSize + (1024 * 50)) {
+                        log(`🤖 Updating transcript (${Math.round(stats.size / 1024)}KB recorded)...`);
                         const { transcribeAudio } = await import('../stt/service.js');
                         const result = await transcribeAudio(RECORDING_PATH);
                         if (result && result.text) {
-                            console.log(`📝 TRANSCRIPT (Update): ${result.text.substring(0, 100)}...`);
+                            log(`📝 New Text: "${result.text.substring(0, 60)}..."`);
                             fs.writeFileSync(TRANSCRIPT_PATH, result.text);
                             sendIPC('transcript', result.text);
                         }
                         lastTranscriptionSize = stats.size;
                     }
                 } catch (e) {
-                    // Silently fail if file busy
+                    log(`⚠️ STT check skipped: ${e.message}`);
                 }
 
-                console.log(`📸 Bot active - ${remaining}s remaining...`);
+                log(`📸 Active - ${remaining}s left...`);
             }
-        }, 15000); // Check every 15s
+        }, 30000); // Check every 30s
 
         // Wait for 10 minutes
         await new Promise(r => setTimeout(r, 10 * 60 * 1000));

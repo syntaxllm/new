@@ -14,7 +14,7 @@ if (!manager) {
 
 export async function POST(req) {
     try {
-        const { joinUrl } = await req.json();
+        const { joinUrl, meetingId, subject } = await req.json();
 
         if (!joinUrl) {
             return NextResponse.json({ error: 'Missing joinUrl' }, { status: 400 });
@@ -29,15 +29,15 @@ export async function POST(req) {
             }, { status: 400 });
         }
 
-        console.log('[API] Requesting Bot Launch via Manager');
+        console.log(`[API] Requesting Bot Launch for Meeting: ${meetingId || 'Manual Link'}`);
 
-        // Use the Manager to launch
-        const session = manager.launchBot(joinUrl);
+        // Use the Manager to launch with metadata
+        const session = manager.launchBot(joinUrl, { meetingId, subject });
 
         return NextResponse.json({
             success: true,
             message: 'Bot launch initiated',
-            logId: session.id, // Using session ID as log ID now
+            logId: session.id,
             status: session.status
         });
 
