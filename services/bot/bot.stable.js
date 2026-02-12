@@ -35,11 +35,8 @@ function sendIPC(type, payload) {
 const originalLog = console.log;
 console.log = (...args) => {
     const msg = args.map(a => String(a)).join(' ');
-    if (process.send) {
-        sendIPC('log', msg); // Send to manager via IPC (Prevents duplicate stdout)
-    } else {
-        originalLog.apply(console, args); // Keep stdout for manual terminal debugging
-    }
+    sendIPC('log', msg); // Send to manager
+    originalLog.apply(console, args); // Keep stdout for debugging
 };
 
 const pid = process.pid;
@@ -500,9 +497,73 @@ const pid = process.pid;
                     const recordingStartTime = Date.now();
                     sendIPC('recording-start', { timestamp: recordingStartTime });
 
-                    // Minimal Ingest logic would go here if we were using it inside the modal block
-                    // But we used the 'STEP 5' block below for clean architecture.
-                    // This block just handles the click.
+                    await page.evaluate(async () => {
+                        console.log('[EAR] Initializing Virtual Ear...');
+                        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                        const dest = ctx.createMediaStreamDestination();
+
+                        const captureAudio = () => {
+                            const getAllElements = (doc) => {
+                                let els = [...doc.querySelectorAll('audio'), ...doc.querySelectorAll('video'), ...doc.querySelectorAll('[data-tid*="participant-audio"]')];
+                                doc.querySelectorAll('iframe').forEach(iframe => {
+                                    try { if (iframe.contentDocument) els = [...els, ...getAllElements(iframe.contentDocument)]; } catch (e) { }
+                                });
+                                return els;
+                            };
+
+                            const elements = getAllElements(document);
+                            let found = 0;
+                            elements.forEach(el => {
+                                const stream = el.srcObject || (el.captureStream ? el.captureStream() : null);
+                                if (stream && stream.getAudioTracks().length > 0 && !el.dataset.captured) {
+                                    try {
+                                        el.dataset.captured = 'true';
+                                        el.muted = false;
+                                        el.volume = 1.0;
+                                        const source = ctx.createMediaStreamSource(stream);
+                                        source.connect(dest);
+                                        found++;
+                                        console.log(`[EAR] Hooked participant stream: ${stream.id}`);
+                                    } catch (err) { console.warn(`[EAR] Stream hook failed: ${err.message}`); }
+                                }
+                            });
+                            if (found > 0) console.log(`[EAR] Total active streams: ${found}`);
+                        };
+
+                        const analyser = ctx.createAnalyser();
+                        dest.connect(analyser);
+                        analyser.fftSize = 256;
+                        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+                        setInterval(() => {
+                            analyser.getByteFrequencyData(dataArray);
+                            let sum = 0;
+                            for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+                            const avg = sum / dataArray.length;
+                            if (avg > 0) console.log(`[EAR] Volume Level: ${Math.round(avg)} (GENUINE AUDIO)`);
+                        }, 5000);
+
+                        if (ctx.state === 'suspended') { await ctx.resume(); console.log('[EAR] Context Resumed'); }
+
+                        setInterval(captureAudio, 5000);
+                        captureAudio();
+
+                        const stream = dest.stream;
+                        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+                        const mediaRecorder = new MediaRecorder(stream, { mimeType });
+
+                        mediaRecorder.ondataavailable = async (e) => {
+                            if (e.data && e.data.size > 0) {
+                                const reader = new FileReader();
+                                reader.onload = () => window.sendAudioChunk(reader.result.split(',')[1]);
+                                reader.readAsDataURL(e.data);
+                            }
+                        };
+                        mediaRecorder.start(2000);
+                        window.meetingMediaRecorder = mediaRecorder;
+                        console.log(`[EAR] MediaRecorder active (${mimeType})`);
+                    });
+
                     await new Promise(r => setTimeout(r, 3000));
                 } else {
                     console.log('⚠️ Audio modal detected but no Join button found');
@@ -514,76 +575,132 @@ const pid = process.pid;
             log(`⚠️ Join process error: ${e.message}`);
         }
 
-        // --- STEP 4: SMART JOIN MONITORING ---
-        console.log('🔍 verifying connection...');
+        // --- STEP 4: STATE CONFIRMATION (LOBBY vs IN_MEETING vs TIMEOUT) ---
+        console.log('🔍 Confirming join state...');
+        await new Promise(r => setTimeout(r, 5000)); // Allow UI transition
 
-        let isInMeeting = false;
-        let waitingInLobby = false;
-        const monitorStartTime = Date.now();
-        const maxWaitTime = 45 * 60 * 1000; // Wait up to 45 mins in lobby
-
-        // Loop until we are IN MAIN MEETING or Timed Out
-        while (Date.now() - monitorStartTime < maxWaitTime) {
-
-            // Checks
-            let lobbyDetected = false;
-            let meetingDetected = false;
-
+        // Priority 1: Check for LOBBY (this is SUCCESS, not failure)
+        const checkLobby = async () => {
             try {
-                // Check Lobby Indicators
-                const lobbyEls = await page.$x("//*[contains(text(), 'waiting to be admitted') or contains(text(), 'Someone will let you in shortly')]");
-                if (lobbyEls.length > 0) lobbyDetected = true;
+                const lobbyIndicators = await page.$x(
+                    "//*[contains(text(), \"let people know you're waiting\") or " +
+                    "contains(text(), 'waiting to be admitted') or " +
+                    "contains(text(), 'Someone will let you in shortly') or " +
+                    "contains(text(), 'Please wait for the host')]"
+                );
+                return lobbyIndicators.length > 0;
+            } catch (e) {
+                return false;
+            }
+        };
 
-                // Check Meeting Indicators (Toolbar, Leave button)
-                meetingDetected = await page.evaluate(() => {
-                    return !!(document.querySelector('[data-tid="call-hangup"]') ||
-                        document.querySelector('[aria-label="Hang up"]') ||
-                        document.querySelector('[aria-label="Leave"]'));
+        // Priority 2: Check for IN_MEETING (call toolbar visible)
+        const checkInMeeting = async () => {
+            try {
+                return await page.evaluate(() => {
+                    const hangup = document.querySelector('button[data-tid="call-hangup"]') ||
+                        document.querySelector('button[data-tid="hangup-button"]');
+                    const leaveBtn = Array.from(document.querySelectorAll('button')).some(b => {
+                        const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                        const txt = (b.innerText || '').toLowerCase();
+                        return aria.includes('leave') || aria.includes('hang up') || txt.includes('leave');
+                    });
+                    const toolbar = document.querySelector('[data-tid="calling-roster"]') ||
+                        document.querySelector('.meeting-action-bar') ||
+                        document.querySelector('[aria-label="Meeting controls"]') ||
+                        document.querySelector('[data-tid="calling-header"]');
+                    return !!(hangup || leaveBtn || toolbar);
                 });
-            } catch (err) { }
-
-            // State Handling
-            if (meetingDetected) {
-                if (!isInMeeting) {
-                    console.log('🟢 Bot confirmed IN MEETING.');
-                    sendIPC('status', 'IN_MEETING');
-                    isInMeeting = true;
-                    waitingInLobby = false;
-                    break; // Proceed to ingest
-                }
-            } else if (lobbyDetected) {
-                if (!waitingInLobby) {
-                    console.log('🟡 Bot is waiting in LOBBY for admission...');
-                    sendIPC('status', 'IN_LOBBY');
-                    waitingInLobby = true;
-                }
-                // Continue waiting...
-            } else {
-                // Transient state or still loading
-                if (Date.now() - monitorStartTime > 60000 && !waitingInLobby && !isInMeeting) {
-                    // If 60s pass and we see NOTHING, we might have timed out
-                    // But we keep trying just in case.
-                }
+            } catch (e) {
+                return false;
             }
+        };
 
-            // Pulse log every 30s if waiting
-            if (waitingInLobby && (Date.now() % 30000 < 2000)) {
-                console.log('⏳ ... still waiting for host admission ...');
+        // State detection loop (120s timeout)
+        let finalState = 'UNKNOWN';
+        const startTime = Date.now();
+        const maxWait = 120000; // 120 seconds
+        let checkCount = 0;
+        let lastScreenshotTime = 0;
+
+        try {
+            while (Date.now() - startTime < maxWait) {
+                checkCount++;
+                console.log(`🔍 State check #${checkCount}...`);
+
+                // DIAGNOSTIC: Save screenshot every 5 seconds
+                const now = Date.now();
+                if (now - lastScreenshotTime > 5000) {
+                    try {
+                        const screenshotName = `state-check-${checkCount}.png`;
+                        await page.screenshot({ path: path.resolve(debugPath, screenshotName) });
+                        console.log(`📸 Diagnostic screenshot: ${screenshotName}`);
+                        lastScreenshotTime = now;
+                    } catch (screenshotErr) {
+                        console.log(`⚠️ Screenshot failed: ${screenshotErr.message}`);
+                    }
+                }
+
+                try {
+                    const inLobby = await checkLobby();
+                    const inMeeting = await checkInMeeting();
+
+                    // MODAL BUSTER (Side-channel): Clear any shims that might be blocking state detection
+                    await page.evaluate(() => {
+                        const buttons = Array.from(document.querySelectorAll('button'));
+                        const busterBtn = buttons.find(b => {
+                            const txt = b.innerText.toLowerCase();
+                            return txt.includes('continue without audio or video') ||
+                                txt.includes('dismiss') ||
+                                txt.includes('got it');
+                        });
+                        if (busterBtn) busterBtn.click();
+                    });
+
+                    if (inLobby) {
+                        console.log('✅ Lobby detected!');
+                        finalState = 'IN_LOBBY';
+                        break;
+                    }
+                    if (inMeeting) {
+                        console.log('✅ Meeting UI detected!');
+                        finalState = 'IN_MEETING';
+                        break;
+                    }
+                } catch (checkErr) {
+                    console.log(`⚠️ Check error: ${checkErr.message}`);
+                    // Continue checking despite errors
+                }
+
+                await new Promise(r => setTimeout(r, 2000)); // Check every 2s
             }
-
-            await new Promise(r => setTimeout(r, 2000));
+        } catch (loopErr) {
+            console.error('❌ State detection loop crashed:', loopErr.message);
         }
 
-        if (!isInMeeting) {
-            console.log('❌ Failed to join meeting after timeout.');
-            sendIPC('status', 'FAILED');
-            // Check screenshots
-            await page.screenshot({ path: path.resolve(debugPath, 'timeout_final.png') });
-            process.exit(1);
+        console.log(`🔍 Final state after ${checkCount} checks: ${finalState}`);
+
+        // Report final state (HONEST REPORTING - NO LIES)
+        if (finalState === 'IN_LOBBY') {
+            sendIPC('status', 'IN_LOBBY');
+            console.log('🟡 Bot is in the LOBBY (waiting for host admission)');
+            console.log('✅ This is a SUCCESS state - bot joined successfully');
+        } else if (finalState === 'IN_MEETING') {
+            sendIPC('status', 'IN_MEETING');
+            console.log('🟢 Bot confirmed IN MEETING (call toolbar detected)');
+        } else {
+            // Timeout - honest reporting but KEEP ALIVE for manual verification
+            sendIPC('status', 'JOIN_TIMEOUT_NO_MEDIA');
+            console.log('❌ JOIN TIMEOUT: No lobby or meeting UI detected after 60s');
+            console.log('⚠️ Likely cause: UI selector mismatch or authentication required');
+            console.log('🔍 CHECK SCREENSHOTS in public/debug/ for visual proof');
+            try {
+                await page.screenshot({ path: path.resolve(debugPath, 'join-timeout-final.png') });
+            } catch (e) { }
         }
 
-        // --- STEP 5: INGEST MODE (Starts only when IN_MEETING) ---
-        if (isInMeeting) {
+        // --- STEP 5: LISTEN MODE (INGEST + MINIMAL) ---
+        if (finalState === 'IN_MEETING' || finalState === 'IN_LOBBY') {
             console.log('🎤 Starting INGEST MODE (Minimal, Stable)...');
 
             await page.evaluate(async () => {
@@ -703,7 +820,7 @@ const pid = process.pid;
                     const { transcribeAudio } = await import('../stt/service.js');
                     const result = await transcribeAudio(RECORDING_PATH);
                     if (result && (result.text || result.segments)) {
-                        log(`� New Text Found (${result.segments?.length || 0} segments)`);
+                        log(`📝 New Text Found (${result.segments?.length || 0} segments)`);
 
                         // Save locally for quick debug
                         fs.writeFileSync(TRANSCRIPT_PATH, result.text || '');

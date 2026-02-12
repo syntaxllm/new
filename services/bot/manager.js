@@ -12,19 +12,59 @@ const BotState = {
     NAVIGATING: 'NAVIGATING',
     PRE_JOIN: 'PRE_JOIN',
     JOINING: 'JOINING',
-    IN_LOBBY: 'IN_LOBBY',        // ✅ Bot successfully joined but waiting for admission
-    IN_MEETING: 'IN_MEETING',    // ✅ Bot is actively in the call
+    IN_LOBBY: 'IN_LOBBY',        // NOT JOINED — waiting for host admission
+    IN_MEETING: 'IN_MEETING',    // ADMITTED + MEDIA FLOWING
     LEAVING: 'LEAVING',
     ENDED: 'ENDED',
     FAILED: 'FAILED',
     KILLED: 'KILLED'
 };
 
+// Strict State Machine Transitions
+const ALLOWED_TRANSITIONS = {
+    [BotState.CREATED]: [BotState.LAUNCHING, BotState.FAILED, BotState.KILLED],
+    [BotState.LAUNCHING]: [BotState.NAVIGATING, BotState.FAILED, BotState.KILLED, BotState.ENDED],
+    [BotState.NAVIGATING]: [BotState.PRE_JOIN, BotState.FAILED, BotState.KILLED, BotState.ENDED],
+    [BotState.PRE_JOIN]: [BotState.JOINING, BotState.FAILED, BotState.KILLED, BotState.ENDED],
+    [BotState.JOINING]: [BotState.IN_LOBBY, BotState.IN_MEETING, BotState.FAILED, BotState.KILLED, BotState.ENDED],
+    [BotState.IN_LOBBY]: [BotState.IN_MEETING, BotState.FAILED, BotState.KILLED, BotState.ENDED, BotState.LEAVING],
+    [BotState.IN_MEETING]: [BotState.LEAVING, BotState.ENDED, BotState.FAILED, BotState.KILLED],
+    [BotState.LEAVING]: [BotState.ENDED, BotState.FAILED, BotState.KILLED],
+    [BotState.FAILED]: [BotState.KILLED],
+    [BotState.ENDED]: [],
+    [BotState.KILLED]: []
+};
+
 class BotManager extends EventEmitter {
     constructor() {
         super();
         this.bots = new Map(); // Store active bot sessions
+        this.startTimeoutChecker();
     }
+
+    startTimeoutChecker() {
+        setInterval(() => {
+            const now = Date.now();
+            for (const [id, session] of this.bots) {
+                // If bot is stuck in JOINING or PRE_JOIN for > 15 minutes, kill it
+                if ([BotState.JOINING, BotState.PRE_JOIN, BotState.NAVIGATING].includes(session.status)) {
+                    if (now - session.startTime.getTime() > 15 * 60 * 1000) {
+                        this.addBotLog(id, '⏱ Join timeout exceeded (15m). Killing bot.', 'system');
+                        this.stopBot(id);
+                    }
+                }
+                // If in LOBBY for > 30 mins, kill it
+                if (session.status === BotState.IN_LOBBY) {
+                    if (now - session.startTime.getTime() > 30 * 60 * 1000) {
+                        this.addBotLog(id, '⏱ Lobby timeout exceeded (30m). Killing bot.', 'system');
+                        this.stopBot(id);
+                    }
+                }
+            }
+        }, 60000); // Check every minute
+    }
+
+    // ... (launchBot, stopBot, etc. remain the same until updateBotStatus) ...
 
     /**
      * Launch a new bot instance
@@ -33,13 +73,15 @@ class BotManager extends EventEmitter {
      * @returns {object} - The bot session object
      */
     launchBot(joinUrl, metadata = {}) {
-        // DUPLICATE CHECK: Don't launch if already running for this URL
-        const existingId = Array.from(this.bots.entries())
-            .find(([_, b]) => b.joinUrl === joinUrl && b.status !== BotState.ENDED && b.status !== BotState.FAILED && b.status !== BotState.KILLED)?.[0];
+        // SCRATCH MODE: If a bot is already active for this URL, kill it to start fresh
+        const existingSession = Array.from(this.bots.entries())
+            .find(([_, b]) => b.joinUrl === joinUrl && b.status !== BotState.ENDED && b.status !== BotState.FAILED && b.status !== BotState.KILLED);
 
-        if (existingId) {
-            console.log(`[BotManager] Bot already active for ${joinUrl} (ID: ${existingId})`);
-            return this.bots.get(existingId);
+        if (existingSession) {
+            const [existingId, session] = existingSession;
+            console.log(`[BotManager] Bot already active for ${joinUrl} (ID: ${existingId}). Terminating for a fresh start...`);
+            this.stopBot(existingId);
+            // Give it a moment to release file locks
         }
 
         const id = crypto.randomUUID();
@@ -54,7 +96,11 @@ class BotManager extends EventEmitter {
             logs: [],
             speakerEvents: [], // Log of [{name, timestamp}] for diarization
             startTime: new Date(),
-            lastHeartbeat: Date.now()
+            lastHeartbeat: Date.now(),
+            flags: {
+                mediaConfirmed: false,
+                recordingStarted: false
+            }
         };
 
         this.bots.set(id, botSession);
@@ -105,7 +151,11 @@ class BotManager extends EventEmitter {
 
                 // AUTOMATIC FINALIZATION
                 if (botSession.metadata?.meetingId) {
-                    this.finalizeMeeting(id);
+                    if (botSession.flags?.mediaConfirmed) {
+                        this.finalizeMeeting(id);
+                    } else {
+                        this.addBotLog(id, '⚠️ Meeting not finalized: Bot never confirmed media/join.', 'system');
+                    }
                 }
             });
 
@@ -169,8 +219,23 @@ class BotManager extends EventEmitter {
     updateBotStatus(id, status) {
         const session = this.bots.get(id);
         if (session) {
+            const current = session.status;
+
+            // Allow force-kill or error to always override
+            if (status === BotState.KILLED || status === BotState.FAILED || status === BotState.ENDED) {
+                // Pass through
+            }
+            // Check allowed transitions
+            else if (ALLOWED_TRANSITIONS[current] && !ALLOWED_TRANSITIONS[current].includes(status)) {
+                // Ignore illegal state transition logs, but maybe log it to system for debugging
+                console.warn(`[BotManager] Illegal state transition ignored: ${current} -> ${status}`);
+                return;
+            }
+
             session.status = status;
             this.emit('bot-update', { id, status });
+            // Also persist status change to log file
+            this.addBotLog(id, `Status: ${status}`, 'status');
         }
     }
 
@@ -185,23 +250,19 @@ class BotManager extends EventEmitter {
             session.logs.push(logEntry);
             this.emit('bot-log', { id, logEntry });
 
-            // PERSISTENCE HACK: Write to .log file so the current React UI (polling) still works
-            // This is temporary until Step 2 (WebSockets) is complete.
+            // PERSISTENCE: Write ALL log messages to .log file so the UI can always show progress.
+            // This ensures the log file exists from the very first message.
             try {
                 const logsDir = path.resolve(process.cwd(), '.bot-logs');
                 if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
-                // Add timestamp to the file line
                 const timeStr = new Date().toISOString();
                 fs.appendFileSync(path.resolve(logsDir, `${id}.log`), `[${timeStr}] ${message.trim()}\n`);
             } catch (e) {
                 console.error('Failed to persist log to file:', e);
             }
 
-            // Heuristic to update status based on logs if IPC isn't sending explicit status updates yet
-            if (message.includes('Navigating to meeting')) this.updateBotStatus(id, BotState.NAVIGATING);
-            if (message.includes('Pre-Join screen')) this.updateBotStatus(id, BotState.PRE_JOIN);
-            if (message.includes('Attempting to JOIN')) this.updateBotStatus(id, BotState.JOINING);
-            if (message.includes('Joined meeting')) this.updateBotStatus(id, BotState.IN_MEETING);
+            // 🛑 REMOVED: Log-based state inference. 
+            // Status updates MUST come from explicit sendIPC('status', ...) calls in bot.js
         }
     }
 
@@ -249,7 +310,14 @@ class BotManager extends EventEmitter {
             });
             this.addBotLog(id, `🎤 Speaker: ${msg.payload.name}`, 'info');
         } else if (msg.type === 'recording-start') {
+            session.flags.mediaConfirmed = true;
+            session.flags.recordingStarted = true;
             session.recordingStartTime = msg.payload.timestamp;
+
+            // If we were waiting for proof, now we have it. Ensure status is IN_MEETING.
+            if (session.status === BotState.JOINING || session.status === BotState.IN_LOBBY) {
+                this.updateBotStatus(id, BotState.IN_MEETING);
+            }
             this.addBotLog(id, '🎤 Microphones active - transcription sync enabled.', 'info');
         }
     }

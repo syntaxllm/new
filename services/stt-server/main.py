@@ -57,8 +57,8 @@ async def transcribe(
     storage_dir = os.path.join(os.getcwd(), "recordings")
     os.makedirs(storage_dir, exist_ok=True)
 
-    # Save file permanently
-    filename = f"{meeting_id}_{int(time.time())}.wav"
+    # Save file permanently (using .webm to match bot output)
+    filename = f"{meeting_id}_{int(time.time())}.webm"
     file_path = os.path.join(storage_dir, filename)
     
     with open(file_path, "wb") as f:

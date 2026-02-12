@@ -35,7 +35,7 @@ export async function transcribeAudio(filePath) {
         const response = await fetch(`${STT_SERVICE_URL}/transcribe`, {
             method: 'POST',
             body: formData,
-            signal: AbortSignal.timeout(10000) // 10s timeout for local service
+            // REMOVED timeout to allow for long audio processing
         });
 
         if (response.ok) {

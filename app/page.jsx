@@ -58,7 +58,7 @@ const LogViewer = ({ onClose, logId, contained = false }) => {
                     <div className="font-mono text-sm text-white font-bold truncate">
                         {/* Show last relevant log */}
                         {(() => {
-                            const relevant = logs.filter(l => ['🤖', '🔗', '✅', '🔍', '✍️', '👆', '⏳', '🔒', '🔴', '📸', '❌', '⚠️', '🟡', '🟢', 'ℹ️', 'IN_MEETING', 'PRE_JOIN', 'JOINING', 'NAVIGATING', 'FAILED'].some(p => l.trim().startsWith(p) || l.includes(p)));
+                            const relevant = logs.filter(l => ['🤖', '🔗', '✅', '🔍', '✍️', '👆', '⏳', '🔒', '🔴', '📸', '❌', '⚠️', '🟡', '🟢', 'ℹ️', 'IN_MEETING', 'IN_LOBBY', 'PRE_JOIN', 'JOINING', 'NAVIGATING', 'FAILED'].some(p => l.trim().startsWith(p) || l.includes(p)));
                             return relevant.length > 0 ? relevant[relevant.length - 1] : 'Ready...';
                         })()}
                     </div>
@@ -520,9 +520,15 @@ export default function MeetingAI() {
                                     <div className="flex items-center justify-between mb-1">
                                         <h4 className="font-semibold text-sm text-green-400">
                                             {bot.status === 'LAUNCHING' || bot.status === 'NAVIGATING' ? 'Initializing Bot...' :
-                                                bot.status === 'IN_LOBBY' ? 'Waiting in Lobby...' : 'Live Recording...'}
+                                                bot.status === 'PRE_JOIN' ? 'Entering Name...' :
+                                                    bot.status === 'JOINING' ? 'Connecting...' :
+                                                        bot.status === 'IN_LOBBY' ? 'Waiting in Lobby...' :
+                                                            bot.status === 'IN_MEETING' ? 'Live Recording...' :
+                                                                bot.status === 'FAILED' ? 'Connection Failed' : 'Processing...'}
                                         </h4>
-                                        <span className={`text-[9px] px-1 rounded-sm font-bold uppercase tracking-tighter ${bot.status === 'IN_MEETING' ? 'bg-green-500 text-black' : 'bg-amber-500 text-black'
+                                        <span className={`text-[9px] px-1 rounded-sm font-bold uppercase tracking-tighter ${bot.status === 'IN_MEETING' ? 'bg-green-500 text-black' :
+                                                bot.status === 'FAILED' ? 'bg-red-500 text-white' :
+                                                    'bg-amber-500 text-black'
                                             }`}>
                                             {bot.status}
                                         </span>

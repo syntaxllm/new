@@ -25,7 +25,13 @@ export async function GET(request) {
         }
 
         if (!fs.existsSync(logPath)) {
-            return NextResponse.json({ error: 'Log not found' }, { status: 404 });
+            return new NextResponse('Log file not found or bot not started yet', {
+                status: 404,
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8',
+                    'Cache-Control': 'no-store'
+                }
+            });
         }
 
         const content = fs.readFileSync(logPath, 'utf8');
