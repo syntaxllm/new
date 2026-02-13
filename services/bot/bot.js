@@ -388,6 +388,7 @@ const pid = process.pid;
             }
 
             // C. Frame check fallback
+            // C. Frame check fallback
             for (const frame of page.frames()) {
                 const frameResult = await frame.evaluate(() => !!(
                     document.querySelector('[data-tid="call-hangup"]') ||
@@ -439,15 +440,18 @@ const pid = process.pid;
 
         // --- STATE: RECORDING_STARTED ---
         transitionTo(STATES.RECORDING_STARTED);
-        log('🎤 Initializing Audio Capture (Ingest)...');
+        log('🎤 Starting INGEST MODE (Stable/Robust)...');
 
         await page.evaluate(async () => {
+            console.log('[EAR] Initializing Virtual Ear...');
             try {
-                // Initialize AudioContext
                 const ctx = new (window.AudioContext || window.webkitAudioContext)();
 
-                // If it's suspended, resume it
-                if (ctx.state === 'suspended') await ctx.resume();
+                // Resume context if suspended (common in headless/autoplay scenarios)
+                if (ctx.state === 'suspended') {
+                    await ctx.resume();
+                    console.log('[INGEST] Audio Context Resumed');
+                }
 
                 const destination = ctx.createMediaStreamDestination();
 
@@ -455,23 +459,35 @@ const pid = process.pid;
                 const capturedElements = new WeakSet();
 
                 const captureAudioElements = () => {
-                    const audioEls = document.querySelectorAll('audio');
-                    audioEls.forEach(el => {
-                        if (el.srcObject && !capturedElements.has(el)) {
+                    const getAllElements = (doc) => {
+                        let els = [...doc.querySelectorAll('audio'), ...doc.querySelectorAll('video'), ...doc.querySelectorAll('[data-tid*="participant-audio"]')];
+                        doc.querySelectorAll('iframe').forEach(iframe => {
+                            try { if (iframe.contentDocument) els = [...els, ...getAllElements(iframe.contentDocument)]; } catch (e) { }
+                        });
+                        return els;
+                    };
+
+                    const elements = getAllElements(document);
+                    let found = 0;
+                    elements.forEach(el => {
+                        const stream = el.srcObject || (el.captureStream ? el.captureStream() : null);
+                        if (stream && stream.getAudioTracks().length > 0 && !capturedElements.has(el)) {
                             try {
-                                const source = ctx.createMediaStreamSource(el.srcObject);
+                                const source = ctx.createMediaStreamSource(stream);
                                 source.connect(destination);
                                 capturedElements.add(el);
-                                console.log('[INGEST] Attached new audio element stream');
+                                found++;
+                                console.log(`[EAR] Hooked participant stream: ${stream.id}`);
                             } catch (err) {
                                 // Already connected
                             }
                         }
                     });
+                    if (found > 0) console.log(`[EAR] New streams hooked: ${found}`);
                 };
 
-                // Poll for new speakers
-                setInterval(captureAudioElements, 2000);
+                // Poll for new speakers (Recursive)
+                setInterval(captureAudioElements, 3000);
                 captureAudioElements();
 
                 // Setup Recorder
