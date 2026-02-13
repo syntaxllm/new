@@ -39,3 +39,5 @@ mock_data/*.vtt
 debug/
 # Others
 .npm/
+recordings/
+services/stt-server/recordings/
