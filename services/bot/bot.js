@@ -2,7 +2,7 @@ import puppeteer from 'puppeteer';
 import fs from 'fs';
 import path from 'path';
 
-// Fix Unicode output for Windows - REMOVED to prevent crash in child_process
+// Fix Unicode output for Windows - often causes issues in child_process
 // if (process.platform === 'win32') {
 //    process.stdout.setEncoding('utf8');
 // }
@@ -14,6 +14,26 @@ if (!MEETING_URL) {
     process.exit(1);
 }
 
+// --- STRICT STATE MACHINE ---
+const STATES = {
+    BROWSER_READY: 'BROWSER_READY',
+    PRE_JOIN_SCREEN: 'PRE_JOIN_SCREEN',
+    JOIN_CLICKED: 'JOIN_CLICKED',
+    IN_MEETING_CONFIRMED: 'IN_MEETING_CONFIRMED',
+    RECORDING_STARTED: 'RECORDING_STARTED',
+    TRANSCRIPTION_PROCESSING: 'TRANSCRIPTION_PROCESSING',
+    FAILED: 'FAILED'
+};
+
+let currentState = STATES.BROWSER_READY;
+
+function transitionTo(newState) {
+    console.log(`[STATE] ${currentState} -> ${newState}`);
+    currentState = newState;
+    sendIPC('status', newState);
+}
+
+// --- CONFIG & PATHS ---
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 const RECORDINGS_DIR = path.resolve(process.cwd(), 'recordings');
 if (!fs.existsSync(RECORDINGS_DIR)) fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
@@ -45,11 +65,11 @@ console.log = (...args) => {
 const pid = process.pid;
 
 (async () => {
-    sendIPC('status', 'LAUNCHING'); // Initial status
-    console.log(`🤖 Bot Launching (Stable Mode) [PID: ${pid}]...`);
+    transitionTo(STATES.BROWSER_READY);
+    console.log(`🤖 Bot Launching (State Machine Mode) [PID: ${pid}]...`);
 
     const browser = await puppeteer.launch({
-        headless: 'new',
+        headless: 'new', // Use 'new' for modern headless
         defaultViewport: null,
         args: [
             '--no-sandbox',
@@ -70,7 +90,9 @@ const pid = process.pid;
             '--disable-webrtc-hw-encoding',
             '--disable-webrtc-hw-decoding',
             '--enable-features=WebRtcHideLocalIpsWithMdns',
-            '--allow-loopback-in-peer-connection'
+            '--allow-loopback-in-peer-connection',
+            // Added for robustness in audio context creation
+            '--disable-features=AudioServiceOutOfProcess'
         ]
     });
 
@@ -109,7 +131,7 @@ const pid = process.pid;
     // Set viewport explicitly
     await page.setViewport({ width: 1920, height: 1080 });
 
-    // EXPLICITLY GRANT PERMISSIONS (Fixes headless permission stalls)
+    // EXPLICITLY GRANT PERMISSIONS
     const context = browser.defaultBrowserContext();
     const origins = ['https://teams.microsoft.com', 'https://teams.live.com', 'https://v-teams.microsoft.com'];
     for (const origin of origins) {
@@ -120,27 +142,45 @@ const pid = process.pid;
 
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36');
 
+    // --- HELPER: Find Element Across Frames ---
+    async function findInFrames(page, selector) {
+        // Check main page first
+        const mainEl = await page.$(selector);
+        if (mainEl) return { frame: page, el: mainEl };
+
+        // Check all frames
+        for (const frame of page.frames()) {
+            try {
+                const el = await frame.$(selector);
+                if (el) return { frame, el };
+            } catch (e) { }
+        }
+        return null;
+    }
+
     try {
-        sendIPC('status', 'NAVIGATING');
         console.log('🔗 Navigating to meeting...');
-        // FIX: 'domcontentloaded' is too fast for Teams. Use 'networkidle0' and explicit sleep.
-        await page.goto(MEETING_URL, { waitUntil: 'networkidle0', timeout: 90000 });
 
-        console.log('⏳ Waiting for page hydration (rendering)...');
-        await new Promise(r => setTimeout(r, 5000)); // Give React time to paint
+        // FIX 1: Use domcontentloaded (prevents network timeouts)
+        await page.goto(MEETING_URL, {
+            waitUntil: 'domcontentloaded',
+            timeout: 60000
+        });
 
-        console.log('✅ Page Loaded & Hydrated.');
+        // FIX 2: Wait for DOM Body (prevents blind sleep issues)
+        console.log('⏳ Waiting for page DOM...');
+        await page.waitForSelector('body', { timeout: 30000 });
+        console.log('✅ Page Loaded (DOM Ready).');
 
-        // DEBUG: Take screenshot after hydration
+        // Debug output
         const debugPath = path.resolve(process.cwd(), 'public', 'debug');
         if (!fs.existsSync(debugPath)) fs.mkdirSync(debugPath, { recursive: true });
         await page.screenshot({ path: path.resolve(debugPath, 'step1-hydrated.png') });
-        console.log('📸 Screenshot taken: step1-hydrated.png');
 
-        // --- STEP 1: HANDLE REDIRECT / LAUNCHER ---
-        console.log('🔍 Checking for "Continue on this browser"...');
+        // --- PRE-JOIN SCREEN HANDLING ---
+        transitionTo(STATES.PRE_JOIN_SCREEN);
 
-        // Handle "Open in app" popup first
+        // 1. Handle "Open in app" popup
         for (let i = 0; i < 3; i++) {
             try {
                 const openInAppBtn = await page.$('button:has-text("Open in app"), button:has-text("Open app")');
@@ -152,505 +192,314 @@ const pid = process.pid;
             } catch (e) { }
         }
 
-        // Retry loop for clicking the landing page button
+        // 2. Handle "Continue on this browser"
         let landed = false;
-        for (let i = 0; i < 5; i++) {
-            try {
-                // Check if we already moved past this screen
-                const preJoinCheck = await page.$('input[data-tid="prejoin-display-name-input"]');
-                if (preJoinCheck) {
-                    console.log('✅ Already on Pre-Join screen.');
-                    landed = true;
-                    break;
-                }
-
-                // Find valid buttons
-                const buttons = await page.$$('button');
-                let targetBtn = null;
-
-                for (const btn of buttons) {
-                    try {
-                        const text = (await page.evaluate(el => el.innerText, btn) || '').toLowerCase();
-                        const tid = (await page.evaluate(el => el.getAttribute('data-tid'), btn) || '').toLowerCase();
-
-                        if (text.includes('continue on this browser') ||
-                            text.includes('use the web app') ||
-                            text.includes('join on the web') ||
-                            text.includes('continue') ||
-                            tid.includes('join-on-web') ||
-                            tid.includes('continue-on-browser')) {
-                            targetBtn = btn;
-                            break;
-                        }
-                    } catch (e) { }
-                }
-
-                if (targetBtn) {
-                    console.log(`[${new Date().toISOString()}] ✅ Clicking landing button: "${await page.evaluate(el => el.innerText, targetBtn)}" (Attempt ${i + 1})...`);
-
-                    // Diagnostic screenshot
-                    try {
-                        await page.screenshot({ path: path.resolve(debugPath, `landing-attempt-${i + 1}.png`) });
-                    } catch (e) { }
-
-                    // Robust click
-                    try {
-                        await Promise.all([
-                            page.evaluate(b => b.click(), targetBtn),
-                            new Promise(r => setTimeout(r, 500))
-                        ]);
-                    } catch (e) {
-                        console.log(`[${new Date().toISOString()}] ⚠️ Click interrupted (likely navigation):`, e.message);
-                    }
-
-                    // WAIT FOR NAVIGATION START (Optimized)
-                    await new Promise(r => setTimeout(r, 8000));
-                } else {
-                    console.log(`[${new Date().toISOString()}] ℹ️ No "Continue" button found yet (Attempt ${i + 1})...`);
-                    try {
-                        await page.screenshot({ path: path.resolve(debugPath, `no-button-attempt-${i + 1}.png`) });
-                    } catch (e) { }
-                    await new Promise(r => setTimeout(r, 3000));
-                }
-            } catch (error) {
-                console.log(`[${new Date().toISOString()}] ⚠️ Navigation/Context error in loop:`, error.message);
-                await new Promise(r => setTimeout(r, 1000));
-            }
-        }
-
-        // --- STEP 2: PRE-JOIN SCREEN ---
-        sendIPC('status', 'PRE_JOIN');
-        log('🔍 Preparing to join meeting...');
         try {
-            console.log(`🔗 Current URL: ${page.url()}`);
-            await page.waitForSelector('input[data-tid="prejoin-display-name-input"]', { timeout: 30000 });
-            log('✅ Join screen detected');
-        } catch (e) {
-            log('⚠️ Pre-Join UI loading slowly, checking for "Allow" modals...');
-
-            // MODAL BUSTER: Click past the "Allow" overlay if it exists
-            await page.evaluate(() => {
-                const buttons = Array.from(document.querySelectorAll('button'));
-                const modalBtn = buttons.find(b => {
-                    const txt = b.innerText.toLowerCase();
-                    return txt.includes('allow') ||
-                        txt.includes('dismiss') ||
-                        txt.includes('got it') ||
-                        txt.includes('ok') ||
-                        txt.includes('continue without audio or video');
+            // Check if we already moved past this screen
+            const preJoinCheck = await page.$('input[data-tid="prejoin-display-name-input"]');
+            if (preJoinCheck) {
+                console.log('✅ Already on Pre-Join screen.');
+                landed = true;
+            } else {
+                const clicked = await page.evaluate(() => {
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    const target = buttons.find(b => {
+                        const t = b.innerText.toLowerCase();
+                        return t.includes('continue on this browser') || t.includes('join on the web');
+                    });
+                    if (target) {
+                        target.click();
+                        return true;
+                    }
+                    return false;
                 });
 
-                if (modalBtn) {
-                    modalBtn.click();
-                } else if (document.body.innerText.includes('Select Allow')) {
-                    // Force click center of screen to dismiss informational overlays
-                    const x = window.innerWidth / 2;
-                    const y = window.innerHeight / 2;
-                    const el = document.elementFromPoint(x, y);
-                    if (el) el.click();
+                if (clicked) {
+                    console.log('✅ Clicked "Continue on this browser". Waiting for navigation...');
+                    try {
+                        // Explicitly wait for navigation to complete
+                        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 });
+                        log('✅ Navigation complete.');
+                    } catch (e) {
+                        log('⚠️ Navigation timeout/warning (proceeding)...');
+                    }
                 }
-            });
-            await new Promise(r => setTimeout(r, 2000));
+            }
+        } catch (e) {
+            console.log('⚠️ Landing page navigation issue:', e.message);
+        }
 
-            // Re-check for Join Screen after potential modal clearance
+        // 3. Wait for Pre-Join interactions (ROBUST)
+        try {
+            await page.waitForSelector('input[data-tid="prejoin-display-name-input"], input[id^="username"], input[aria-label*="name" i]', { timeout: 30000 });
+            log('✅ Join screen detected');
+        } catch (e) {
+            log('⚠️ Pre-Join UI slowly loading, checking for "Allow" modals...');
+
+            // Modal Buster (SAFEGUARDED)
             try {
-                await page.waitForSelector('input[data-tid="prejoin-display-name-input"]', { timeout: 5000 });
-                log('✅ Join screen detected (Post-Modal Buster)');
-            } catch (retryErr) { }
+                await page.evaluate(() => {
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    const modalBtn = buttons.find(b => {
+                        const txt = b.innerText.toLowerCase();
+                        return txt.includes('allow') || txt.includes('dismiss') || txt.includes('got it');
+                    });
+                    if (modalBtn) modalBtn.click();
+                });
+            } catch (evalErr) {
+                if (!evalErr.message.includes('Protocol error')) console.log('⚠️ ' + evalErr.message);
+            }
+
+            await new Promise(r => setTimeout(r, 2000));
+            // Re-check
+            try {
+                await page.waitForSelector('input[data-tid="prejoin-display-name-input"]', { timeout: 10000 });
+            } catch (e) { }
         }
 
-        // --- STEP 2.2: ENTER NAME ---
-        const nameInput = await page.$('input[data-tid="prejoin-display-name-input"], input[id^="username"], input[type="text"]');
-        if (nameInput) {
-            log('✍️ Setting bot name...');
-            await nameInput.click({ clickCount: 3 });
-            await nameInput.press('Backspace');
-            await nameInput.type('MeetingAI Bot');
-            await new Promise(r => setTimeout(r, 500));
-        }
+        // --- STEP 2.2: ENTER NAME (NUCLEAR OPTION) ---
+        log('✍️ Setting bot name (Nuclear Mode)...');
+        try {
+            const nameEntered = await page.evaluate(async () => {
+                const inputs = Array.from(document.querySelectorAll('input[type="text"], input[data-tid*="name"]'));
+                const visibleInputs = inputs.filter(el => {
+                    const rect = el.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0 && el.style.visibility !== 'hidden';
+                });
 
-        // --- STEP 2.5: FORCE DISABLE CAMERA AND MIC (SILENT MODE) ---
+                for (const input of visibleInputs) {
+                    try {
+                        input.focus();
+                        input.click();
+                        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                        if (setter) {
+                            setter.call(input, 'MeetingAI Bot');
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                            input.dispatchEvent(new Event('blur', { bubbles: true }));
+                        } else {
+                            input.value = 'MeetingAI Bot';
+                        }
+                        if (input.value === 'MeetingAI Bot') return true;
+                    } catch (e) { }
+                }
+                return false;
+            });
+
+            if (!nameEntered) {
+                // Fallback to native typing
+                const nameInput = await page.$('input[data-tid="prejoin-display-name-input"], input[id^="username"]');
+                if (nameInput) {
+                    await nameInput.click({ clickCount: 3 });
+                    await nameInput.type('MeetingAI Bot');
+                }
+            }
+        } catch (e) { log('⚠️ Name entry warning: ' + e.message); }
+
+        // 5. Force Disable Camera/Mic
         log('🔇 Ensuring Camera and Mic are OFF...');
         try {
             await page.evaluate(() => {
                 const buttons = Array.from(document.querySelectorAll('button'));
-
                 const muteDevice = (keywords) => {
                     const btn = buttons.find(b => {
                         const label = (b.ariaLabel || '').toLowerCase();
                         const text = (b.innerText || '').toLowerCase();
                         return keywords.some(k => label.includes(k) || text.includes(k));
                     });
-
                     if (btn) {
                         const label = (btn.ariaLabel || '').toLowerCase();
-                        const isCurrentlyOn = btn.ariaPressed === 'true' ||
-                            label.includes('turn off') ||
-                            label.includes('mute');
-
-                        // Only click if it's currently "ON"
-                        if (isCurrentlyOn && !label.includes('turn on')) {
-                            btn.click();
-                        }
+                        const isCurrentlyOn = btn.ariaPressed === 'true' || label.includes('turn off') || label.includes('mute');
+                        if (isCurrentlyOn && !label.includes('turn on')) btn.click();
                     }
                 };
-
                 muteDevice(['camera', 'video']);
                 muteDevice(['microphone', 'mic', 'mute']);
             });
             await new Promise(r => setTimeout(r, 1000));
-        } catch (e) {
-            log('⚠️ Pre-join mute failed: ' + e.message);
-        }
-
-        // --- STEP 3: JOIN ---
-        sendIPC('status', 'JOINING');
-        log('👆 Joining meeting...');
-        await new Promise(r => setTimeout(r, 1500));
-
-        let joinClicked = false;
-
-        // STRATEGY 1: Smart selector + robust click
-        try {
-            const joinButton = await page.evaluateHandle(() => {
-                const buttons = Array.from(document.querySelectorAll('button'));
-                return buttons.find(b => {
-                    const txt = b.innerText.trim().toLowerCase();
-                    const tid = b.getAttribute('data-tid') || '';
-                    return txt === 'join now' ||
-                        txt === 'join' ||
-                        txt === 'join meeting' ||
-                        tid.includes('join-button') ||
-                        tid.includes('prejoin-join') ||
-                        tid.includes('submit-button');
-                }) || document.querySelector('button[data-tid="prejoin-join-button"]');
-            });
-
-            if (joinButton && joinButton.asElement()) {
-                log('🎯 Join button found, attempting robust click...');
-                const btn = joinButton.asElement();
-
-                // Strategy A: Native click
-                await btn.click({ delay: 100 });
-
-                // Strategy B: Focus + Enter (for React/Angular handlers)
-                await btn.focus();
-                await new Promise(r => setTimeout(r, 200));
-                await page.keyboard.press('Enter');
-
-                console.log('✅ Join sequence initiated');
-                joinClicked = true;
-            } else {
-                // Fallback: evaluate click (direct DOM manipulation)
-                joinClicked = await page.evaluate(() => {
-                    const buttons = Array.from(document.querySelectorAll('button'));
-                    const joinBtn = buttons.find(b => {
-                        const txt = b.innerText.trim().toLowerCase();
-                        const tid = b.getAttribute('data-tid') || '';
-                        return txt === 'join now' || txt === 'join' || tid.includes('join-button');
-                    });
-                    if (joinBtn) {
-                        joinBtn.click();
-                        // Dispatch additional events just in case
-                        ['mousedown', 'mouseup', 'click'].forEach(evt => {
-                            joinBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true }));
-                        });
-                        return true;
-                    }
-                    return false;
-                });
-                if (joinClicked) console.log('✅ Join initiated via fallback injection');
-            }
-        } catch (e) {
-            if (e.message.includes('detached') || e.message.includes('Target closed')) {
-                console.log('✅ Join triggered navigation (frame detached)');
-                joinClicked = true;
-            } else {
-                console.error('❌ Join button interaction failed:', e.message);
-            }
-        }
-
-        if (!joinClicked) {
-            console.error('❌ Could not find or click Join button');
-            await page.screenshot({ path: path.resolve(debugPath, 'join-button-missing.png') });
-            sendIPC('status', 'FAILED');
-            throw new Error('JOIN_BUTTON_NOT_FOUND');
-        }
-
-        // --- STEP 3.5: HANDLE AUDIO SELECTION MODAL ---
-        console.log('🔍 Checking for audio selection modal (Waiting up to 10s)...');
-        await new Promise(r => setTimeout(r, 10000));
-
-        // Take diagnostic screenshot before second join
-        try {
-            await page.screenshot({ path: path.resolve(debugPath, 'before-second-join.png') });
-            console.log('📸 Screenshot: before-second-join.png');
         } catch (e) { }
 
-        try {
-            // Strategy 1: Look for "Computer audio" text (confirms we're on audio modal)
-            const hasAudioModal = await page.evaluate(() => {
-                return document.body.innerText.includes('Computer audio') ||
-                    document.body.innerText.includes('Phone audio') ||
-                    document.body.innerText.includes('Fake Default Audio');
+        // --- STATE: JOIN CLICKED (ROBUST STRATEGY) ---
+        transitionTo(STATES.JOIN_CLICKED);
+        log('👇 Executing STABLE join sequence...');
+
+        // 1. Primary Click (Fuzzy & Events)
+        log('👆 Clicking Primary Join Button...');
+        let joinClicked = await page.evaluate(() => {
+            const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+            const joinBtn = buttons.find(b => {
+                const txt = (b.innerText || '').toLowerCase();
+                const tid = (b.getAttribute('data-tid') || '').toLowerCase();
+                return txt === 'join now' || txt === 'join' || tid.includes('prejoin-join') || tid.includes('join-button');
             });
-
-            if (hasAudioModal) {
-                console.log('✅ Audio selection modal confirmed (Computer audio detected)');
-
-                // CRITICAL FIX: NUCLEAR OPTION FOR NAME ENTRY
-                // The specific selectors failed. We will try ALL visible text inputs.
-                try {
-                    console.log('☢️ Initiating NUCLEAR name entry...');
-
-                    const nameEntered = await page.evaluate(async () => {
-                        const inputs = Array.from(document.querySelectorAll('input[type="text"], input[data-tid*="name"]'));
-                        // Filter for visible inputs only
-                        const visibleInputs = inputs.filter(el => {
-                            const rect = el.getBoundingClientRect();
-                            return rect.width > 0 && rect.height > 0 && el.style.visibility !== 'hidden';
-                        });
-
-                        console.log(`Found ${visibleInputs.length} visible inputs`);
-
-                        for (const input of visibleInputs) {
-                            try {
-                                input.focus();
-                                input.click();
-                                input.value = ''; // Direct JS clear
-                                // Try native typing simulation if allowed, otherwise set value
-                                const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                                if (setter) {
-                                    setter.call(input, 'MeetingAI Bot');
-                                    input.dispatchEvent(new Event('input', { bubbles: true }));
-                                    input.dispatchEvent(new Event('change', { bubbles: true }));
-                                    input.dispatchEvent(new Event('blur', { bubbles: true })); // Trigger validation
-                                } else {
-                                    input.value = 'MeetingAI Bot';
-                                }
-                                if (input.value === 'MeetingAI Bot') return true;
-                            } catch (e) { }
-                        }
-                        return false;
-                    });
-
-                    if (nameEntered) {
-                        console.log('✅ Name set via JS injection (Nuclear option)');
-                    } else {
-                        console.log('⚠️ JS name entry failed, trying Puppeteer native typing...');
-                        try {
-                            // Focus any text input and type
-                            await page.focus('input[type="text"]');
-                            await page.keyboard.down('Control');
-                            await page.keyboard.press('A');
-                            await page.keyboard.up('Control');
-                            await page.keyboard.press('Backspace');
-                            await page.type('input[type="text"]', 'MeetingAI Bot', { delay: 100 });
-                            console.log('✅ Name set via native typing fallback');
-                        } catch (err) {
-                            console.log('❌ All name entry strategies FAILED');
-                        }
-                    }
-
-                    if (!nameEntered) {
-                        // Diagnostic screenshot after typing attempts
-                        await page.screenshot({ path: path.resolve(debugPath, 'after-name-entry.png') });
-
-                        // Dump HTML for debugging if still suspicious
-                        const html = await page.content();
-                        fs.writeFileSync(path.resolve(debugPath, 'page_dump.html'), html);
-                        console.log('📄 Saved HTML dump and screenshot for debugging');
-                    }
-
-                    await new Promise(r => setTimeout(r, 1000));
-                } catch (e) {
-                    console.log(`⚠️ Nuclear name entry error: ${e.message}`);
-                }
-
-                // Strategy 2: Find and click the "Join now" button on this modal
-                let clickSuccess = false;
-                for (let j = 0; j < 3; j++) {
-                    clickSuccess = await page.evaluate(() => {
-                        const buttons = Array.from(document.querySelectorAll('button'));
-                        const joinBtn = buttons.find(b => {
-                            const txt = b.innerText.trim().toLowerCase();
-                            return txt === 'join now' || txt === 'join meeting';
-                        });
-
-                        if (joinBtn) {
-                            joinBtn.click();
-                            return true;
-                        }
-                        return false;
-                    });
-
-                    if (clickSuccess) {
-                        log(`✅ Clicked SECOND "Join now" button (Attempt ${j + 1})`);
-                        break;
-                    } else {
-                        console.log(`ℹ️ "Join now" button not found (Attempt ${j + 1}), waiting 3s...`);
-                        await page.screenshot({ path: path.resolve(debugPath, `join-modal-attempt-${j + 1}.png`) });
-                        await new Promise(r => setTimeout(r, 3000));
-                    }
-                }
-
-                if (clickSuccess) {
-                    // START LISTENING IMMEDIATELY (Don't wait for confirmation)
-                    log('🎤 Starting LISTEN MODE immediately...');
-                    const recordingStartTime = Date.now();
-                    sendIPC('recording-start', { timestamp: recordingStartTime });
-
-                    // Minimal Ingest logic would go here if we were using it inside the modal block
-                    // But we used the 'STEP 5' block below for clean architecture.
-                    // This block just handles the click.
-                    await new Promise(r => setTimeout(r, 3000));
-                } else {
-                    console.log('⚠️ Audio modal detected but no Join button found');
-                }
-            } else {
-                console.log('ℹ️ No audio modal detected (may have auto-joined)');
+            if (joinBtn) {
+                joinBtn.click();
+                // Dispatch manual events for React
+                ['mousedown', 'mouseup', 'click'].forEach(evt => {
+                    joinBtn.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true }));
+                });
+                return true;
             }
-        } catch (e) {
-            log(`⚠️ Join process error: ${e.message}`);
+            return false;
+        });
+
+        if (!joinClicked) {
+            log('⚠️ Standard join click failed. Searching frames...');
+            // Frame fallback handled in loop
         }
 
-        // --- STEP 4: SMART JOIN MONITORING ---
-        console.log('🔍 verifying connection...');
+        // 3. Wait for Meeting Entry (ROBUST with CONTINUOUS MODAL BUSTER)
+        log('⏳ Waiting for meeting entry (Loop with Modal Buster)...');
 
-        let isInMeeting = false;
-        let waitingInLobby = false;
-        const monitorStartTime = Date.now();
-        const maxWaitTime = 45 * 60 * 1000; // Wait up to 45 mins in lobby
+        let inMeeting = false;
+        const startTime = Date.now();
+        const maxWait = 60000; // 60s
 
-        // Loop until we are IN MAIN MEETING or Timed Out
-        while (Date.now() - monitorStartTime < maxWaitTime) {
-
-            // Checks
-            let lobbyDetected = false;
-            let meetingDetected = false;
-
-            try {
-                // Check Lobby Indicators
-                const lobbyEls = await page.$x("//*[contains(text(), 'waiting to be admitted') or contains(text(), 'Someone will let you in shortly')]");
-                if (lobbyEls.length > 0) lobbyDetected = true;
-
-                // Check Meeting Indicators (Toolbar, Leave button)
-                meetingDetected = await page.evaluate(() => {
-                    return !!(document.querySelector('[data-tid="call-hangup"]') ||
-                        document.querySelector('[aria-label="Hang up"]') ||
-                        document.querySelector('[aria-label="Leave"]'));
+        while (Date.now() - startTime < maxWait) {
+            // A. MODAL BUSTER (Crucial for fake devices)
+            await page.evaluate(() => {
+                const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+                const busterBtn = buttons.find(b => {
+                    const txt = (b.innerText || '').toLowerCase();
+                    return txt.includes('continue without audio') ||
+                        txt.includes('dismiss') ||
+                        txt.includes('got it');
                 });
-            } catch (err) { }
+                if (busterBtn) busterBtn.click();
+            });
 
-            // State Handling
-            if (meetingDetected) {
-                if (!isInMeeting) {
-                    console.log('🟢 Bot confirmed IN MEETING.');
-                    sendIPC('status', 'IN_MEETING');
-                    isInMeeting = true;
-                    waitingInLobby = false;
-                    break; // Proceed to ingest
-                }
-            } else if (lobbyDetected) {
-                if (!waitingInLobby) {
-                    console.log('🟡 Bot is waiting in LOBBY for admission...');
-                    sendIPC('status', 'IN_LOBBY');
-                    waitingInLobby = true;
-                }
-                // Continue waiting...
-            } else {
-                // Transient state or still loading
-                if (Date.now() - monitorStartTime > 60000 && !waitingInLobby && !isInMeeting) {
-                    // If 60s pass and we see NOTHING, we might have timed out
-                    // But we keep trying just in case.
-                }
+            // B. Detect Meeting
+            const detected = await page.evaluate(() => {
+                const selectors = [
+                    '[data-tid="call-hangup"]',
+                    '[aria-label="Hang up"]',
+                    'button[aria-label*="leave" i]',
+                    'button[id*="hangup"]',
+                    'button[data-tid*="leave"]',
+                    'video', // Strongest signal
+                    '[data-tid*="call-control"]'
+                ];
+                return selectors.some(s => document.querySelector(s));
+            });
+
+            if (detected) {
+                inMeeting = true;
+                break;
             }
 
-            // Pulse log every 30s if waiting
-            if (waitingInLobby && (Date.now() % 30000 < 2000)) {
-                console.log('⏳ ... still waiting for host admission ...');
+            // C. Frame check fallback
+            for (const frame of page.frames()) {
+                const frameResult = await frame.evaluate(() => !!(
+                    document.querySelector('[data-tid="call-hangup"]') ||
+                    document.querySelector('button[aria-label*="leave" i]')
+                )).catch(() => false);
+                if (frameResult) {
+                    inMeeting = true;
+                    break;
+                }
             }
+            if (inMeeting) break;
 
             await new Promise(r => setTimeout(r, 2000));
         }
 
-        if (!isInMeeting) {
-            console.log('❌ Failed to join meeting after timeout.');
-            sendIPC('status', 'FAILED');
-            // Check screenshots
-            await page.screenshot({ path: path.resolve(debugPath, 'timeout_final.png') });
-            process.exit(1);
-        }
-
-        // --- STEP 5: INGEST MODE (Starts only when IN_MEETING) ---
-        if (isInMeeting) {
-            console.log('🎤 Starting INGEST MODE (Minimal, Stable)...');
-
-            await page.evaluate(async () => {
-                try {
-                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                    const destination = ctx.createMediaStreamDestination();
-
-                    // Track captured elements to avoid double-connecting
-                    const capturedElements = new WeakSet();
-
-                    const captureAudioElements = () => {
-                        const audioEls = document.querySelectorAll('audio');
-
-                        audioEls.forEach(el => {
-                            try {
-                                if (el.srcObject && !capturedElements.has(el)) {
-                                    const source = ctx.createMediaStreamSource(el.srcObject);
-                                    source.connect(destination);
-                                    capturedElements.add(el);
-                                    console.log('[INGEST] Attached new audio element stream');
-                                }
-                            } catch (err) {
-                                console.warn('[INGEST] Attach failed for element:', err.message);
-                            }
-                        });
-                    };
-
-                    // Poll every 3 seconds to catch new speakers/streams
-                    setInterval(captureAudioElements, 3000);
-                    captureAudioElements();
-
-                    // Resume context if suspended (common in headless/autoplay scenarios)
-                    if (ctx.state === 'suspended') {
-                        await ctx.resume();
-                        console.log('[INGEST] Audio Context Resumed');
-                    }
-
-                    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-                        ? 'audio/webm;codecs=opus'
-                        : 'audio/webm';
-
-                    const recorder = new MediaRecorder(destination.stream, { mimeType });
-
-                    recorder.ondataavailable = (event) => {
-                        if (event.data && event.data.size > 0) {
-                            const reader = new FileReader();
-                            reader.onload = () => {
-                                const base64 = reader.result.split(',')[1];
-                                window.sendAudioChunk(base64);
-                            };
-                            reader.readAsDataURL(event.data);
+        // --- STATE: IN_MEETING_CONFIRMED (FINAL CHECK) ---
+        if (inMeeting) {
+            transitionTo(STATES.IN_MEETING_CONFIRMED);
+        } else {
+            // One last check before giving up
+            inMeeting = await page.evaluate(() => !!(document.querySelector('[data-tid="call-hangup"]') || document.querySelector('[aria-label="Hang up"]')));
+            if (inMeeting) {
+                transitionTo(STATES.IN_MEETING_CONFIRMED);
+            } else {
+                // Final check for Lobby
+                const isLobby = await page.evaluate(() => document.body.innerText.includes('waiting to be admitted'));
+                if (isLobby) {
+                    sendIPC('status', 'IN_LOBBY');
+                    log('🟡 Locked in Lobby.');
+                    // Infinite Wait Loop for Lobby
+                    while (true) {
+                        await new Promise(r => setTimeout(r, 5000));
+                        const admitted = await page.evaluate(() => !!(document.querySelector('[data-tid="call-hangup"]') || document.querySelector('[aria-label="Hang up"]')));
+                        if (admitted) {
+                            log('✅ Admitted from Lobby!');
+                            transitionTo(STATES.IN_MEETING_CONFIRMED);
+                            break;
                         }
-                    };
-
-                    recorder.start(2000); // 2-second chunks
-                    window.meetingMediaRecorder = recorder;
-
-                    console.log(`[INGEST] MediaRecorder started (${mimeType})`);
-                } catch (err) {
-                    console.error('[INGEST] Failed to initialize:', err.message);
+                    }
+                } else {
+                    log('❌ Failed to join after Robust Sequence.');
+                    throw new Error('Join Timeout');
                 }
-            });
+            }
         }
 
-        // --- STEP 6: KEEP ALIVE + SMART END DETECTION ---
-        console.log('⏳ Bot active (Smart End Detection enabled)...');
-        console.log('🔊 Transcription results and speaker detection active.');
+        // --- RECORDING START ---
+        // At this point, we are strictly IN_MEETING_CONFIRMED
+
+        // --- STATE: RECORDING_STARTED ---
+        transitionTo(STATES.RECORDING_STARTED);
+        log('🎤 Initializing Audio Capture (Ingest)...');
+
+        await page.evaluate(async () => {
+            try {
+                // Initialize AudioContext
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+                // If it's suspended, resume it
+                if (ctx.state === 'suspended') await ctx.resume();
+
+                const destination = ctx.createMediaStreamDestination();
+
+                // Track captured elements
+                const capturedElements = new WeakSet();
+
+                const captureAudioElements = () => {
+                    const audioEls = document.querySelectorAll('audio');
+                    audioEls.forEach(el => {
+                        if (el.srcObject && !capturedElements.has(el)) {
+                            try {
+                                const source = ctx.createMediaStreamSource(el.srcObject);
+                                source.connect(destination);
+                                capturedElements.add(el);
+                                console.log('[INGEST] Attached new audio element stream');
+                            } catch (err) {
+                                // Already connected
+                            }
+                        }
+                    });
+                };
+
+                // Poll for new speakers
+                setInterval(captureAudioElements, 2000);
+                captureAudioElements();
+
+                // Setup Recorder
+                const mimeType = 'audio/webm;codecs=opus'; // Standard for webm
+                const recorder = new MediaRecorder(destination.stream, { mimeType });
+
+                recorder.ondataavailable = (event) => {
+                    if (event.data && event.data.size > 0) {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            const base64 = reader.result.split(',')[1];
+                            window.sendAudioChunk(base64);
+                        };
+                        reader.readAsDataURL(event.data);
+                    }
+                };
+
+                recorder.start(1000); // 1s chunks
+                window.meetingMediaRecorder = recorder;
+                console.log(`[INGEST] MediaRecorder started (${mimeType})`);
+
+            } catch (err) {
+                console.error('[INGEST] Start failed:', err.message);
+            }
+        });
+
+        // --- STATE: TRANSCRIPTION_PROCESSING ---
+        transitionTo(STATES.TRANSCRIPTION_PROCESSING);
 
         let lastTranscriptionSize = 0;
         let meetingEnded = false;
@@ -660,124 +509,96 @@ const pid = process.pid;
 
             sendIPC('heartbeat', {});
 
-            // 1. SMART END DETECTION
-            try {
-                const isStillActive = await page.evaluate(() => {
-                    const hangupBtn = document.querySelector('button[aria-label*="hang up" i], button[id*="hangup"], button[aria-label*="leave" i]');
-                    const endedText = document.body.innerText.includes('Call ended') || document.body.innerText.includes('was removed');
-                    const rejoinBtn = document.querySelector('button[aria-label*="rejoin" i]');
+            // 1. Check for End of Meeting
+            const isStillActive = await page.evaluate(() => {
+                const hangupBtn = document.querySelector('button[aria-label*="hang up" i], button[id*="hangup"], button[aria-label*="leave" i]');
+                const endedText = document.body.innerText.includes('Call ended') || document.body.innerText.includes('was removed');
+                if (!hangupBtn || endedText) return false;
+                return true;
+            });
 
-                    if (!hangupBtn || endedText || rejoinBtn) return false;
-                    return true;
-                });
-
-                if (!isStillActive) {
-                    console.log('🚩 Meeting end detected via UI signals.');
-                    meetingEnded = true;
-                    return;
-                }
-            } catch (e) {
-                console.log('⚠️ Status check failed');
+            if (!isStillActive) {
+                log('🚩 Meeting end detected via UI signals.');
+                meetingEnded = true;
+                return;
             }
 
-            // SAFETY SWEEP: Ensure mic/cam didn't accidentally turn on
-            try {
-                await page.evaluate(() => {
-                    const toolbarButtons = Array.from(document.querySelectorAll('button[aria-label*="camera" i], button[aria-label*="mic" i], button[aria-label*="mute" i]'));
-                    toolbarButtons.forEach(btn => {
-                        const label = (btn.ariaLabel || '').toLowerCase();
-                        const isCurrentlyOn = btn.ariaPressed === 'true' || label.includes('turn off') || label.includes('mute');
-                        if (isCurrentlyOn && !label.includes('turn on')) {
-                            btn.click();
-                        }
-                    });
-                });
-            } catch (e) { }
-
-            // PERIODIC STT TRIGGER: If file has grown, transcribe
+            // 2. Transcribe periodically
             try {
                 const stats = fs.statSync(RECORDING_PATH);
-                // INCREASED SENSITIVITY: 20KB threshold for faster updates
-                if (stats.size > lastTranscriptionSize + (1024 * 20)) {
-                    log(`🤖 Updating transcript (${Math.round(stats.size / 1024)}KB recorded)...`);
-                    const { transcribeAudio } = await import('../stt/service.js');
-                    const result = await transcribeAudio(RECORDING_PATH);
-                    if (result && (result.text || result.segments)) {
-                        log(`� New Text Found (${result.segments?.length || 0} segments)`);
-
-                        // Save locally for quick debug
-                        fs.writeFileSync(TRANSCRIPT_PATH, result.text || '');
-
-                        // Send full result to Manager for VTT conversion
-                        sendIPC('transcript', result);
-                        sendIPC('stt-success', { count: result.segments?.length });
+                if (stats.size > lastTranscriptionSize + (1024 * 50)) { // Every 50KB
+                    log(`🤖 Updating transcript (${Math.round(stats.size / 1024)}KB)...`);
+                    try {
+                        // Dynamic import for service.js to avoid top-level await issues if not supported
+                        // or just use consistent import if typical Node
+                        // NOTE: Changed to relative path based on usage
+                        const { transcribeAudio } = await import('../stt/service.js');
+                        const result = await transcribeAudio(RECORDING_PATH);
+                        if (result && (result.text || result.segments)) {
+                            sendIPC('transcript', result);
+                            sendIPC('stt-success', { count: result.segments?.length });
+                            fs.writeFileSync(TRANSCRIPT_PATH, result.text || '');
+                        }
+                    } catch (innerErr) {
+                        // ignore partial import errors
                     }
                     lastTranscriptionSize = stats.size;
                 }
-                log(`📸 Active - monitoring meeting status...`);
             } catch (e) {
-                log(`⚠️ Periodic task failed: ${e.message}`);
+                log(`⚠️ STT partial failed: ${e.message}`);
             }
-        }, 30000); // Check every 30s
 
-        // Wait until meeting ends or max timeout
-        const maxTime = Date.now() + (120 * 60 * 1000); // 2 hours
+        }, 15000); // Check every 15s
+
+        // Keep Alive Loop
+        const maxTime = Date.now() + (120 * 60 * 1000); // 2 hours hard limit
         while (!meetingEnded && Date.now() < maxTime) {
             await new Promise(r => setTimeout(r, 5000));
         }
 
         clearInterval(heartbeatInterval);
-        console.log('✅ Transcription period complete (Meeting fully ingested)');
+        console.log('✅ Meeting ended. Stopping recorder...');
 
-        // Stop recording
+        // Stop Recorder
         try {
             await page.evaluate(() => {
-                if (window.meetingMediaRecorder) {
-                    window.meetingMediaRecorder.stop();
-                    console.log('MediaRecorder stopped');
-                }
+                if (window.meetingMediaRecorder) window.meetingMediaRecorder.stop();
             });
-            await new Promise(r => setTimeout(r, 2000)); // Wait for last chunks
+            await new Promise(r => setTimeout(r, 2000));
             audioStream.end();
-        } catch (e) {
-            console.error('Error stopping recorder:', e.message);
-        }
+        } catch (e) { }
 
-        // Trigger STT
-        console.log('🤖 Triggering STT Transcription...');
+        // Final Transcription
+        console.log('🤖 Triggering Final STT...');
         try {
             const { transcribeAudio } = await import('../stt/service.js');
             const result = await transcribeAudio(RECORDING_PATH);
             if (result && result.text) {
                 fs.writeFileSync(TRANSCRIPT_PATH, result.text);
-                console.log(`✅ STT Transcript generated: ${TRANSCRIPT_PATH}`);
                 sendIPC('transcript', result.text);
             }
-        } catch (sttErr) {
-            console.error('❌ STT Transcription failed:', sttErr.message);
+        } catch (e) {
+            console.error('❌ Final STT failed:', e.message);
         }
 
         console.log('🔴 Bot shutting down gracefully...');
+        await browser.close();
+        process.exit(0);
 
     } catch (err) {
-        sendIPC('status', 'FAILED');
+        transitionTo(STATES.FAILED);
         console.error('❌ FATAL:', err.message);
-
-        // CAPTURE FATAL ERROR SCREENSHOT
         try {
-            const debugPath = path.resolve(process.cwd(), 'public', 'debug');
-            if (!fs.existsSync(debugPath)) fs.mkdirSync(debugPath, { recursive: true });
-            await page.screenshot({ path: path.resolve(debugPath, 'fatal-error.png') });
-            console.log('📸 FATAL ERROR SCREENSHOT SAVED: fatal-error.png');
+            console.log('📸 Attempting to save fatal error screenshot...');
+            await page.screenshot({ path: path.resolve(process.cwd(), 'public', 'debug', 'fatal-error.png') });
+            console.log('📸 Saved fatal-error.png');
         } catch (e) {
-            console.error('Failed to save fatal screenshot:', e);
+            console.error('⚠️ Failed to save screenshot:', e.message);
         }
-
-        // Don't take screenshot to avoid page close errors
-        try {
-            await browser.close();
-        } catch (e) {
-            // Browser already closed
+        // Keep browser open for debugging if HEADLESS is false
+        if (!process.argv.includes('--headless')) { // Simple check, or just wait a bit
+            console.log('🛑 Keeping browser open for 30s for inspection...');
+            await new Promise(r => setTimeout(r, 30000));
         }
         process.exit(1);
     }

@@ -8,12 +8,18 @@ import fs from 'fs';
 // Bot States Enum
 const BotState = {
     CREATED: 'CREATED',
+    BROWSER_READY: 'BROWSER_READY',
     LAUNCHING: 'LAUNCHING',
     NAVIGATING: 'NAVIGATING',
     PRE_JOIN: 'PRE_JOIN',
+    PRE_JOIN_SCREEN: 'PRE_JOIN_SCREEN',
     JOINING: 'JOINING',
-    IN_LOBBY: 'IN_LOBBY',        // NOT JOINED — waiting for host admission
-    IN_MEETING: 'IN_MEETING',    // ADMITTED + MEDIA FLOWING
+    JOIN_CLICKED: 'JOIN_CLICKED',
+    IN_LOBBY: 'IN_LOBBY',
+    IN_MEETING: 'IN_MEETING',
+    IN_MEETING_CONFIRMED: 'IN_MEETING_CONFIRMED',
+    RECORDING_STARTED: 'RECORDING_STARTED',
+    TRANSCRIPTION_PROCESSING: 'TRANSCRIPTION_PROCESSING',
     LEAVING: 'LEAVING',
     ENDED: 'ENDED',
     FAILED: 'FAILED',
@@ -22,13 +28,25 @@ const BotState = {
 
 // Strict State Machine Transitions
 const ALLOWED_TRANSITIONS = {
-    [BotState.CREATED]: [BotState.LAUNCHING, BotState.FAILED, BotState.KILLED],
-    [BotState.LAUNCHING]: [BotState.NAVIGATING, BotState.FAILED, BotState.KILLED, BotState.ENDED],
-    [BotState.NAVIGATING]: [BotState.PRE_JOIN, BotState.FAILED, BotState.KILLED, BotState.ENDED],
-    [BotState.PRE_JOIN]: [BotState.JOINING, BotState.FAILED, BotState.KILLED, BotState.ENDED],
-    [BotState.JOINING]: [BotState.IN_LOBBY, BotState.IN_MEETING, BotState.FAILED, BotState.KILLED, BotState.ENDED],
-    [BotState.IN_LOBBY]: [BotState.IN_MEETING, BotState.FAILED, BotState.KILLED, BotState.ENDED, BotState.LEAVING],
-    [BotState.IN_MEETING]: [BotState.LEAVING, BotState.ENDED, BotState.FAILED, BotState.KILLED],
+    [BotState.CREATED]: [BotState.LAUNCHING, BotState.BROWSER_READY, BotState.FAILED, BotState.KILLED],
+    [BotState.LAUNCHING]: [BotState.BROWSER_READY, BotState.NAVIGATING, BotState.FAILED, BotState.KILLED, BotState.ENDED],
+    // Browser Ready -> Next steps
+    [BotState.BROWSER_READY]: [BotState.PRE_JOIN_SCREEN, BotState.PRE_JOIN, BotState.NAVIGATING, BotState.FAILED, BotState.KILLED],
+    [BotState.NAVIGATING]: [BotState.PRE_JOIN, BotState.PRE_JOIN_SCREEN, BotState.FAILED, BotState.KILLED, BotState.ENDED],
+    // Pre Join -> Join
+    [BotState.PRE_JOIN]: [BotState.JOINING, BotState.JOIN_CLICKED, BotState.FAILED, BotState.KILLED, BotState.ENDED],
+    [BotState.PRE_JOIN_SCREEN]: [BotState.JOINING, BotState.JOIN_CLICKED, BotState.FAILED, BotState.KILLED, BotState.ENDED],
+    // Joining -> Meeting or Lobby
+    [BotState.JOINING]: [BotState.IN_LOBBY, BotState.IN_MEETING, BotState.IN_MEETING_CONFIRMED, BotState.FAILED, BotState.KILLED, BotState.ENDED],
+    [BotState.JOIN_CLICKED]: [BotState.IN_LOBBY, BotState.IN_MEETING, BotState.IN_MEETING_CONFIRMED, BotState.FAILED, BotState.KILLED, BotState.ENDED],
+    // In Lobby -> Meeting
+    [BotState.IN_LOBBY]: [BotState.IN_MEETING, BotState.IN_MEETING_CONFIRMED, BotState.FAILED, BotState.KILLED, BotState.ENDED, BotState.LEAVING],
+    // In Meeting -> Recording/Processing or Leaving
+    [BotState.IN_MEETING]: [BotState.RECORDING_STARTED, BotState.TRANSCRIPTION_PROCESSING, BotState.LEAVING, BotState.ENDED, BotState.FAILED, BotState.KILLED],
+    [BotState.IN_MEETING_CONFIRMED]: [BotState.RECORDING_STARTED, BotState.TRANSCRIPTION_PROCESSING, BotState.LEAVING, BotState.ENDED, BotState.FAILED, BotState.KILLED],
+    [BotState.RECORDING_STARTED]: [BotState.TRANSCRIPTION_PROCESSING, BotState.LEAVING, BotState.ENDED, BotState.FAILED, BotState.KILLED],
+    [BotState.TRANSCRIPTION_PROCESSING]: [BotState.LEAVING, BotState.ENDED, BotState.FAILED, BotState.KILLED],
+
     [BotState.LEAVING]: [BotState.ENDED, BotState.FAILED, BotState.KILLED],
     [BotState.FAILED]: [BotState.KILLED],
     [BotState.ENDED]: [],
