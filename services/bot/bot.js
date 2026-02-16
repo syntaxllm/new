@@ -512,6 +512,44 @@ const pid = process.pid;
             } catch (err) {
                 console.error('[INGEST] Start failed:', err.message);
             }
+
+            // --- SPEAKER OBSERVER (Diarization) ---
+            const speakerObserver = () => {
+                // Teams specific selectors for "Who is speaking"
+                const selectors = [
+                    '[data-tid="active-speaker"]',
+                    '.ui-chat__message__author', // sometimes helpful
+                    '[aria-label*="is speaking"]',
+                    '[data-tid*="participant-audio"]'
+                ];
+
+                // 1. Direct "Is Speaking" Aria Labels
+                const speakingEls = Array.from(document.querySelectorAll('[aria-label*="is speaking"]'));
+                for (const el of speakingEls) {
+                    const label = el.getAttribute('aria-label');
+                    if (label) {
+                        // Format: "Name is speaking"
+                        const name = label.replace(/\s+is speaking.*/i, '').trim();
+                        if (name && name !== 'You') {
+                            window.sendSpeakerEvent(name);
+                            return;
+                        }
+                    }
+                }
+
+                // 2. Avatar Rings (Visual Indicator)
+                // Teams often puts a colored ring or class on talking avatars
+                const speakingAvatars = Array.from(document.querySelectorAll('[data-cid="avatar-img"].speaking, .fui-Avatar.speaking'));
+                if (speakingAvatars.length > 0) {
+                    // finding the name container could be tricky, usually sibling or parent
+                    // skipping complex DOM traversal for now to keep it fast
+                }
+            };
+
+            // Poll for speakers more frequently than audio structure
+            setInterval(speakerObserver, 500);
+
+
         });
 
         // --- STATE: TRANSCRIPTION_PROCESSING ---

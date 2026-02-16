@@ -114,6 +114,56 @@ const LogViewer = ({ onClose, logId, contained = false }) => {
     );
 };
 
+// LIVE TRANSCRIPT COMPONENT
+const LiveTranscript = ({ vttContent }) => {
+    const endRef = useRef(null);
+
+    // Auto-scroll logic
+    useEffect(() => {
+        endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [vttContent]);
+
+    if (!vttContent) return <div className="text-gray-500 italic p-4 text-center">Waiting for speech...</div>;
+
+    const segments = [];
+    const lines = vttContent.split('\n');
+    let currentSegment = null;
+
+    lines.forEach(line => {
+        if (line.includes('-->')) {
+            currentSegment = { time: line.split('-->')[0].trim() };
+        } else if (line.startsWith('<v')) {
+            const match = line.match(/<v (.*?)>(.*)<\/v>/);
+            if (match && currentSegment) {
+                currentSegment.speaker = match[1];
+                currentSegment.text = match[2];
+                segments.push(currentSegment);
+                currentSegment = null;
+            }
+        }
+    });
+
+    return (
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {segments.map((seg, i) => (
+                <div key={i} className="flex gap-3">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-teams-primary/20 flex items-center justify-center text-xs font-bold text-teams-primary border border-teams-primary/30">
+                        {seg.speaker?.charAt(0) || '?'}
+                    </div>
+                    <div className="flex-1">
+                        <div className="flex items-baseline gap-2 mb-1">
+                            <span className="font-semibold text-sm text-gray-200">{seg.speaker}</span>
+                            <span className="text-[10px] text-gray-500 font-mono">{seg.time}</span>
+                        </div>
+                        <p className="text-gray-300 text-sm leading-relaxed">{seg.text}</p>
+                    </div>
+                </div>
+            ))}
+            <div ref={endRef} />
+        </div>
+    );
+};
+
 
 export default function MeetingAI() {
     const [meetings, setMeetings] = useState([]);
@@ -147,6 +197,7 @@ export default function MeetingAI() {
 
         loadMeetings();
         checkLogin();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
@@ -154,6 +205,7 @@ export default function MeetingAI() {
             loadActiveMeetings();
             loadActiveBots();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isLoggedIn]);
 
     async function loadActiveBots() {
@@ -213,6 +265,7 @@ export default function MeetingAI() {
             loadActiveBots();
         }, 10000);
         return () => clearInterval(interval);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // --- BOT & MEETING LOGIC ---
@@ -450,7 +503,7 @@ export default function MeetingAI() {
                                         onClick={() => launchBot(activeMeetings.find(m => m.isCurrent))}
                                         className="w-full py-2 bg-gradient-to-r from-green-700 to-green-600 hover:from-green-600 hover:to-green-500 text-white text-xs font-bold rounded shadow-lg flex items-center justify-center gap-2 transition-all"
                                     >
-                                        <span>🚀 Join "{activeMeetings.find(m => m.isCurrent).subject}"</span>
+                                        <span>🚀 Join &quot;{activeMeetings.find(m => m.isCurrent).subject}&quot;</span>
                                     </button>
                                 </div>
                             )}
@@ -527,8 +580,8 @@ export default function MeetingAI() {
                                                                 bot.status === 'FAILED' ? 'Connection Failed' : 'Processing...'}
                                         </h4>
                                         <span className={`text-[9px] px-1 rounded-sm font-bold uppercase tracking-tighter ${bot.status === 'IN_MEETING' ? 'bg-green-500 text-black' :
-                                                bot.status === 'FAILED' ? 'bg-red-500 text-white' :
-                                                    'bg-amber-500 text-black'
+                                            bot.status === 'FAILED' ? 'bg-red-500 text-white' :
+                                                'bg-amber-500 text-black'
                                             }`}>
                                             {bot.status}
                                         </span>
@@ -608,8 +661,18 @@ export default function MeetingAI() {
                                 </div>
                             </div>
 
-                            <div className="flex-1 bg-black/40 rounded-lg p-4 font-mono text-[11px] overflow-hidden flex flex-col">
-                                <h3 className="text-xs uppercase font-bold text-white/40 mb-2">Live Bot Logs</h3>
+                            {/* LIVE TRANSCRIPT */}
+                            <div className="flex-[2] bg-teams-surface border border-teams-border rounded-lg overflow-hidden flex flex-col min-h-0">
+                                <div className="px-4 py-2 bg-black/20 border-b border-teams-border flex justify-between items-center">
+                                    <h3 className="text-xs uppercase font-bold text-green-400">Live Transcript</h3>
+                                    <span className="text-[10px] text-gray-500">Auto-scrolling</span>
+                                </div>
+                                <LiveTranscript vttContent={selectedBot.vttContent} />
+                            </div>
+
+                            {/* LIVE LOGS */}
+                            <div className="flex-1 bg-black/40 rounded-lg p-4 font-mono text-[11px] overflow-hidden flex flex-col min-h-0 border border-t-0 border-white/5">
+                                <h3 className="text-xs uppercase font-bold text-white/40 mb-2">Bot Operations Log</h3>
                                 <div className="flex-1 overflow-y-auto space-y-1 scrollbar-hide">
                                     <LogViewer logId={selectedBot.id} contained={true} />
                                 </div>
