@@ -1,96 +1,146 @@
 /**
  * Speech-to-Text (STT) Service
  * 
- * Implements a two-stage transcription pipeline:
- * 1. Local transcription via faster-whisper (STT_SERVICE_URL)
- * 2. Cloud fallback via OpenAI Whisper or Groq Whisper
+ * Implements a configurable transcription pipeline:
+ * 
+ * ENV: STT_MODE controls which engine is used:
+ *   - "local"      (default) → Try local faster-whisper first, fallback to cloud
+ *   - "cloud"      → Skip local, go straight to OpenAI/Groq cloud API
+ *   - "local_only" → Local only, no cloud fallback
  */
 
 import fs from 'fs';
 import path from 'path';
 
+/**
+ * Hallucination Filter for Whisper STT
+ * Whisper frequently hallucinates repetitive/stock phrases on silence or noise.
+ * This filter runs on BOTH cloud and local results.
+ */
+const HALLUCINATION_PHRASES = new Set([
+    'thanks for watching',
+    'thank you for watching', 'subscribe', 'like and subscribe',
+    'bye', 'goodbye', 'see you next time', 'the end',
+    'music', 'applause', 'laughter', 'silence',
+    'thanks for listening', 'thank you very much',
+    'please subscribe', 'you you', 'you you you',
+    'subtitles', 'captioned by', 'copyright', 'all rights reserved',
+    'no audio'
+]);
+
+function isHallucination(text) {
+    if (!text || typeof text !== 'string') return true;
+
+    // Remove ALL common hallucination noise (punctuation, trailing dots, etc)
+    const clean = text.replace(/[.,!?;:'"()\[\]{}]/g, '').trim().toLowerCase();
+
+    // If it's too short after cleaning, it's noise
+    if (!clean || clean.length < 2) return true;
+
+    // Check strict match against known hallucinations
+    for (const phrase of HALLUCINATION_PHRASES) {
+        if (clean.includes(phrase)) return true;
+    }
+
+    // Check for repetitive words (e.g., "you you you you")
+    const words = clean.split(/\s+/);
+    if (words.length >= 3) {
+        const uniqueWords = new Set(words);
+        // If 75%+ of words are the same word, it's repetitive
+        if (uniqueWords.size === 1) return true;
+        const mostCommonCount = Math.max(...[...uniqueWords].map(w => words.filter(x => x === w).length));
+        if (mostCommonCount / words.length >= 0.75) return true;
+    }
+
+    return false;
+}
+
+/**
+ * Filter segments to remove hallucinated content
+ */
+function filterSegments(segments) {
+    const before = segments.length;
+    const filtered = segments.filter(s => !isHallucination(s.text));
+    const removed = before - filtered.length;
+    if (removed > 0) {
+        console.log(`[STT Service] 🧹 Hallucination filter: removed ${removed}/${before} segments`);
+    }
+    return filtered;
+}
+
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const STT_SERVICE_URL = process.env.STT_SERVICE_URL || 'http://localhost:4545';
+const rawGroqKeys = process.env.GROQ_API_KEYS || process.env.GROQ_API_KEY || '';
+const GROQ_API_KEYS = rawGroqKeys.split(',').map(k => k.trim()).filter(Boolean);
+let currentApiKeyIndex = 0;
+const STT_MODE = (process.env.STT_MODE || 'local').toLowerCase().trim(); // 'local' | 'cloud' | 'local_only'
+
+console.log(`[STT Service] Mode: ${STT_MODE.toUpperCase()} | Local URL: ${STT_SERVICE_URL}`);
 
 /**
- * Transcribe audio using a multi-stage approach:
- * 1. Try local STT service (faster-whisper)
- * 2. Fallback to Cloud/API (OpenAI or Groq)
+ * Cloud transcription helper (OpenAI or Groq)
  */
-export async function transcribeAudio(filePath) {
-    if (!fs.existsSync(filePath)) {
-        throw new Error(`File not found: ${filePath}`);
-    }
+async function cloudTranscribe(filePath, retryCount = 0, forceOpenAI = false) {
+    const hasOpenAI = !!OPENAI_API_KEY && !OPENAI_API_KEY.includes('your_openai_api_key_');
+    const useOpenAI = forceOpenAI || (hasOpenAI && GROQ_API_KEYS.length === 0);
 
-    // --- STAGE 1: LOCAL TRANSCRIPTION ---
-    console.log(`[STT Service] STAGE 1: Attempting local transcription at ${STT_SERVICE_URL}...`);
-    try {
-        const formData = new FormData();
-        const fileBuffer = fs.readFileSync(filePath);
-        const fileName = path.basename(filePath);
-        const blob = new Blob([fileBuffer], { type: 'audio/webm' });
-        formData.append('file', blob, fileName);
+    // Key Rotation for Groq
+    let apiKey;
 
-        const response = await fetch(`${STT_SERVICE_URL}/transcribe`, {
-            method: 'POST',
-            body: formData,
-            // REMOVED timeout to allow for long audio processing
-        });
-
-        if (response.ok) {
-            const result = await response.json();
-            console.log('✅ Local transcription successful');
-
-            // Map segments for easy VTT generation
-            let segments = [];
-            if (result.transcript && Array.isArray(result.transcript)) {
-                segments = result.transcript.map(t => ({
-                    start: t.start_time,
-                    end: t.end_time,
-                    speaker: t.speaker_id || 'Meeting Participant',
-                    text: t.text
-                }));
-            }
-
-            return {
-                text: result.text || segments.map(s => s.text).join(' '),
-                segments: segments, // Pass raw segments for VTT generation
-                language: result.language || 'en',
-                duration: result.duration || 0,
-                method: 'local'
-            };
+    // RELOAD KEYS if empty (sometimes .env loads late)
+    if (GROQ_API_KEYS.length === 0) {
+        const freshKeys = (process.env.GROQ_API_KEYS || process.env.GROQ_API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
+        if (freshKeys.length > 0) {
+            GROQ_API_KEYS.push(...freshKeys);
+            console.log(`[STT Service] 🔄 Reloaded ${GROQ_API_KEYS.length} Groq keys from env.`);
         }
-        console.warn(`[STT Service] Local service returned ${response.status}: ${await response.text()}`);
-    } catch (localErr) {
-        console.log(`[STT Service] Local transcription error: ${localErr.message}. Falling back to Cloud.`);
     }
 
-    // --- STAGE 2: CLOUD TRANSCRIPTION (OpenAI/Groq) ---
-    console.log(`[STT Service] STAGE 2: Attempting cloud transcription...`);
+    if (useOpenAI) {
+        apiKey = OPENAI_API_KEY;
+    } else {
+        if (GROQ_API_KEYS.length === 0 && !hasOpenAI) throw new Error('No API keys found');
+        if (GROQ_API_KEYS.length > 0) {
+            apiKey = GROQ_API_KEYS[currentApiKeyIndex];
+        } else {
+            // Should not reach here if logic is correct, but safety net
+            throw new Error('Groq keys missing and OpenAI not forced');
+        }
+    }
 
-    // Preference: OpenAI API if key available, else Groq
-    const useOpenAI = !!OPENAI_API_KEY && !OPENAI_API_KEY.includes('your_openai_api_key_');
-    const apiKey = useOpenAI ? OPENAI_API_KEY : GROQ_API_KEY;
     const apiUrl = useOpenAI
         ? 'https://api.openai.com/v1/audio/transcriptions'
         : 'https://api.groq.com/openai/v1/audio/transcriptions';
-    const modelName = useOpenAI ? 'whisper-1' : 'whisper-large-v3';
+    const modelName = useOpenAI ? 'whisper-1' : 'whisper-large-v3-turbo'; // Much faster/stable
 
     if (!apiKey || apiKey.includes('your_')) {
-        throw new Error('No Cloud API key configured for STT Stage 2 (check OPENAI_API_KEY or GROQ_API_KEY)');
+        throw new Error('No Cloud API key configured (set OPENAI_API_KEY or GROQ_API_KEYS in .env)');
     }
 
+    console.log(`[STT Service] ☁️ Uploading ${path.basename(filePath)} to ${useOpenAI ? 'OpenAI' : 'Groq'} (Model: ${modelName}, Key #${currentApiKeyIndex + 1})...`);
+
+    const formData = new FormData();
+    const fileBuffer = fs.readFileSync(filePath);
+    const fileName = path.basename(filePath);
+    // Groq requires audio/* MIME type. OpenAI is flexible.
+    // 'audio/webm' is the correct type for our recordings.
+    const mimeType = 'audio/webm';
+    const blob = new Blob([fileBuffer], { type: mimeType });
+
+    // Use original filename
+    formData.append('file', blob, fileName);
+    formData.append('model', modelName);
+    formData.append('response_format', 'verbose_json');
+    formData.append('language', 'en');
+    // OpenAI and Groq handle this slightly differently, but standard is usually without []
+    if (useOpenAI) {
+        formData.append('timestamp_granularities', 'segment');
+    }
+    // Groq: timestamp_granularities is not strictly required for verbose_json segments, 
+    // and sometimes causes issues. We'll omit it for now to see if it fixes 400s.
+
     try {
-        const formData = new FormData();
-        const fileBuffer = fs.readFileSync(filePath);
-        const fileName = path.basename(filePath);
-        const blob = new Blob([fileBuffer], { type: 'audio/webm' });
-
-        formData.append('file', blob, fileName);
-        formData.append('model', modelName);
-        formData.append('response_format', 'json');
-
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${apiKey}` },
@@ -99,20 +149,182 @@ export async function transcribeAudio(filePath) {
 
         if (!response.ok) {
             const errorText = await response.text();
+            console.error(`[STT Service] ❌ Cloud API Error ${response.status}: ${errorText.substring(0, 200)}...`);
+
+            // Handle Rate Limit (429) OR Server Error (5xx) - Rotate key or backoff
+            if ((response.status === 429 || response.status >= 500) && retryCount < (GROQ_API_KEYS.length * 3)) {
+                console.warn(`[STT Service] ⚠️ Cloud API Error (${response.status}). Rotating key and retrying (Attempt ${retryCount + 1})...`);
+
+                // Rotate to next key if using Groq
+                if (!useOpenAI) {
+                    // Check if we have multiple keys
+                    if (GROQ_API_KEYS.length > 1) {
+                        currentApiKeyIndex = (currentApiKeyIndex + 1) % GROQ_API_KEYS.length;
+                        console.log(`[STT Service] 🔄 Switched to Groq Key Index: ${currentApiKeyIndex}`);
+                    }
+                }
+
+                // Exponential backoff
+                const delay = Math.pow(2, retryCount) * 3000;
+                await new Promise(r => setTimeout(r, delay));
+                return await cloudTranscribe(filePath, retryCount + 1);
+            }
+
+            // AUTO-FAILOVER: If Groq fails (5xx OR 400 Bad Request) OR persistent errors
+            const isGroqError = !useOpenAI;
+            const canFailover = OPENAI_API_KEY && !OPENAI_API_KEY.includes('your_openai_api_key_');
+
+            // Failover criteria: 
+            // 1. Critical Errors: 400 (Bad Request), 403 (Forbidden), 413 (Payload Too Large)
+            // 2. Persistent Server/Rate Errors: 500+ or 429 after retries
+            const isCritical = [400, 403, 413].includes(response.status);
+            const isPersistent = (response.status >= 500 || response.status === 429) && retryCount >= 1;
+
+            if (isGroqError && canFailover && (isCritical || isPersistent)) {
+                console.warn(`[STT Service] 🚨 Groq failed (${response.status} - Retry ${retryCount}). Failing over to OpenAI...`);
+                return await cloudTranscribe(filePath, retryCount, true); // Force OpenAI
+            }
+
             throw new Error(`Cloud API error (${response.status}): ${errorText}`);
         }
 
         const result = await response.json();
-        console.log(`✅ Cloud transcription successful using ${useOpenAI ? 'OpenAI' : 'Groq'}`);
+        const provider = useOpenAI ? 'openai' : 'groq';
+        console.log(`✅ Cloud transcription successful via ${provider}`);
+
+        // Map cloud segments (if verbose_json returned them)
+        let segments = [];
+        if (result.segments && Array.isArray(result.segments)) {
+            segments = result.segments.map(s => ({
+                start: s.start,
+                end: s.end,
+                speaker: 'Meeting Participant',
+                text: (s.text || '').trim()
+            }));
+        }
+        // FALLBACK: If we have text but no segments, create a single segment
+        else if (result.text && result.text.trim().length > 0) {
+            console.log(`[STT Service] ⚠️ No segments found, using text fallback`);
+            segments = [{
+                start: 0,
+                end: result.duration || 0,
+                speaker: 'Meeting Participant',
+                text: result.text.trim()
+            }];
+        }
+
+        // Apply hallucination filter
+        const finalSegments = filterSegments(segments);
+
         return {
-            text: result.text || '',
+            text: finalSegments.map(s => s.text).join(' '),
+            segments: finalSegments,
             language: result.language || 'en',
             duration: result.duration || 0,
-            method: useOpenAI ? 'openai' : 'groq'
+            method: provider
         };
-    } catch (cloudErr) {
-        console.error('[STT Service] Cloud transcription failed:', cloudErr.message);
-        throw cloudErr;
+    } catch (err) {
+        // Retry on network errors too
+        if (retryCount < 3 && (err.message.includes('fetch') || err.message.includes('timeout'))) {
+            console.warn(`[STT Service] ⚠️ Network error: ${err.message}. Retrying...`);
+            await new Promise(r => setTimeout(r, 2000));
+            return await cloudTranscribe(filePath, retryCount + 1);
+        }
+        throw err;
+    }
+}
+
+/**
+ * Local transcription helper (faster-whisper via STT server)
+ */
+async function localTranscribe(filePath) {
+    console.log(`[STT Service] 🖥️ Local transcription at ${STT_SERVICE_URL}...`);
+
+    const formData = new FormData();
+    const fileBuffer = fs.readFileSync(filePath);
+    const fileName = path.basename(filePath);
+    const blob = new Blob([fileBuffer], { type: 'audio/webm' });
+    formData.append('file', blob, fileName);
+
+    // 120s timeout
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000);
+
+    try {
+        const response = await fetch(`${STT_SERVICE_URL}/transcribe`, {
+            method: 'POST',
+            body: formData,
+            signal: controller.signal
+        });
+
+        if (!response.ok) {
+            throw new Error(`Local STT returned ${response.status}: ${await response.text()}`);
+        }
+
+        const result = await response.json();
+        console.log('✅ Local transcription successful');
+
+        let segments = [];
+        if (result.transcript && Array.isArray(result.transcript)) {
+            segments = result.transcript.map(t => ({
+                start: t.start_time,
+                end: t.end_time,
+                speaker: t.speaker_id || 'Meeting Participant',
+                text: t.text
+            }));
+        }
+
+        // Apply hallucination filter
+        segments = filterSegments(segments);
+
+        return {
+            text: segments.map(s => s.text).join(' ') || result.text || '',
+            segments: segments,
+            language: result.language || 'en',
+            duration: result.duration || 0,
+            method: 'local'
+        };
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            throw new Error('Local STT request timed out ( > 120s)');
+        }
+        throw err;
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
+/**
+ * Transcribe audio using the configured STT_MODE:
+ *   STT_MODE=local      → local first, cloud fallback
+ *   STT_MODE=cloud      → cloud only
+ *   STT_MODE=local_only → local only
+ */
+export async function transcribeAudio(filePath) {
+    // Read STT_MODE dynamically to allow hot-swapping via .env
+    const currentMode = (process.env.STT_MODE || 'local').toLowerCase().trim();
+    console.log(`[STT Service] Transcribing with mode: ${currentMode.toUpperCase()}`);
+
+    if (!fs.existsSync(filePath)) {
+        throw new Error(`File not found: ${filePath}`);
+    }
+
+    // ─── CLOUD ONLY ───
+    if (currentMode === 'cloud') {
+        return await cloudTranscribe(filePath);
+    }
+
+    // ─── LOCAL ONLY ───
+    if (currentMode === 'local_only') {
+        return await localTranscribe(filePath);
+    }
+
+    // ─── LOCAL + CLOUD FALLBACK (default) ───
+    try {
+        return await localTranscribe(filePath);
+    } catch (localErr) {
+        console.log(`[STT Service] Local failed: ${localErr.message}. Falling back to cloud...`);
+        return await cloudTranscribe(filePath);
     }
 }
 

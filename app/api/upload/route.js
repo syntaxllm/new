@@ -5,6 +5,8 @@ import { parseVTT } from '../../../lib/parser.js';
 import { chunkEntries } from '../../../lib/indexer.js';
 import * as storage from '../../../lib/storage-prod.js';
 
+import { getUserIdFromRequest } from '../../../lib/auth.js';
+
 const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads');
 
 /**
@@ -12,6 +14,7 @@ const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads');
  */
 export async function POST(request) {
     try {
+        const userId = getUserIdFromRequest(request);
         const formData = await request.formData();
         const file = formData.get('file');
         const fileName = formData.get('fileName') || file.name;
@@ -48,6 +51,7 @@ export async function POST(request) {
             // Create meeting object
             const meetingObj = {
                 meetingId,
+                userId,
                 source: fileName,
                 uploadedAt: new Date().toISOString(),
                 durationSeconds,

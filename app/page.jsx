@@ -143,22 +143,44 @@ const LiveTranscript = ({ vttContent }) => {
         }
     });
 
+    const getSpeakerColor = (name) => {
+        const colors = [
+            'text-blue-400 bg-blue-400/10 border-blue-400/30',
+            'text-purple-400 bg-purple-400/10 border-purple-400/30',
+            'text-pink-400 bg-pink-400/10 border-pink-400/30',
+            'text-amber-400 bg-amber-400/10 border-amber-400/30',
+            'text-cyan-400 bg-cyan-400/10 border-cyan-400/30',
+            'text-emerald-400 bg-emerald-400/10 border-emerald-400/30',
+            'text-indigo-400 bg-indigo-400/10 border-indigo-400/30'
+        ];
+        let hash = 0;
+        for (let i = 0; i < (name || '').length; i++) {
+            hash = (name.charCodeAt(i) + ((hash << 5) - hash)) % colors.length;
+        }
+        return colors[Math.abs(hash)];
+    };
+
     return (
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {segments.map((seg, i) => (
-                <div key={i} className="flex gap-3">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-teams-primary/20 flex items-center justify-center text-xs font-bold text-teams-primary border border-teams-primary/30">
-                        {seg.speaker?.charAt(0) || '?'}
-                    </div>
-                    <div className="flex-1">
-                        <div className="flex items-baseline gap-2 mb-1">
-                            <span className="font-semibold text-sm text-gray-200">{seg.speaker}</span>
-                            <span className="text-[10px] text-gray-500 font-mono">{seg.time}</span>
+            {segments.map((seg, i) => {
+                const colorClass = getSpeakerColor(seg.speaker);
+                return (
+                    <div key={i} className="flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border ${colorClass.split(' ').slice(0, 3).join(' ')}`}>
+                            {seg.speaker?.charAt(0) || '?'}
                         </div>
-                        <p className="text-gray-300 text-sm leading-relaxed">{seg.text}</p>
+                        <div className="flex-1">
+                            <div className="flex items-baseline gap-2 mb-1">
+                                <span className={`font-bold text-sm ${colorClass.split(' ')[0]}`}>{seg.speaker}</span>
+                                <span className="text-[10px] text-gray-500 font-mono tracking-tighter">{seg.time}</span>
+                            </div>
+                            <p className="text-gray-200 text-sm leading-relaxed bg-white/5 p-3 rounded-tr-xl rounded-br-xl rounded-bl-xl border border-white/5">
+                                {seg.text}
+                            </p>
+                        </div>
                     </div>
-                </div>
-            ))}
+                );
+            })}
             <div ref={endRef} />
         </div>
     );
@@ -169,6 +191,7 @@ export default function MeetingAI() {
     const [meetings, setMeetings] = useState([]);
     const [selectedMeeting, setSelectedMeeting] = useState(null);
     const [selectedBot, setSelectedBot] = useState(null); // New state for live monitoring
+    const [meetingContent, setMeetingContent] = useState(''); // Content for historical meetings
     const [view, setView] = useState('overview');
     const [chatMessages, setChatMessages] = useState([]);
     const [chatInput, setChatInput] = useState('');
@@ -178,7 +201,7 @@ export default function MeetingAI() {
     const [theme, setTheme] = useState('dark');
 
     // UI Layout State
-    const [showLogs, setShowLogs] = useState(true); // Default Open 
+    const [showLogs, setShowLogs] = useState(true); // Default Visible for status monitoring
 
     // Bot & Meeting State
     const [activeMeetings, setActiveMeetings] = useState([]);
@@ -216,9 +239,14 @@ export default function MeetingAI() {
                 const bots = data.bots || [];
                 setActiveBots(bots);
 
-                // If selected bot is gone, clear it
-                if (selectedBot && !bots.find(b => b.id === selectedBot.id)) {
-                    setSelectedBot(null);
+                // Sync selected bot with latest data (e.g., new transcript segments)
+                if (selectedBot) {
+                    const latest = bots.find(b => b.id === selectedBot.id);
+                    if (latest) {
+                        setSelectedBot(latest);
+                    } else {
+                        setSelectedBot(null);
+                    }
                 }
             }
         } catch (e) { console.error('Error loading active bots:', e); }
@@ -417,9 +445,21 @@ export default function MeetingAI() {
 
     const handleBotSelect = (bot) => {
         setSelectedBot(bot);
-        setSelectedMeeting(null); // Clear archived meeting
-        setView('live');
+        setSelectedMeeting(null);
+        setView('overview'); // Switch to unified transcript view
     };
+
+    useEffect(() => {
+        if (selectedMeeting && selectedMeeting.path) {
+            // Fetch VTT content
+            fetch(selectedMeeting.path)
+                .then(r => r.text())
+                .then(text => setMeetingContent(text))
+                .catch(err => console.error('Failed to load meeting content:', err));
+        } else {
+            setMeetingContent('');
+        }
+    }, [selectedMeeting]);
 
     const toggleTheme = () => {
         const newTheme = theme === 'light' ? 'dark' : 'light';
@@ -431,48 +471,51 @@ export default function MeetingAI() {
     return (
         <div className="flex flex-col h-screen bg-teams-bg text-teams-text-primary font-sans">
             {/* Header */}
-            <header className="flex-shrink-0 bg-[#333366] text-white h-12 px-4 flex items-center justify-between shadow-md">
-                <div className="flex items-center gap-2 text-lg font-semibold">
-                    <span>⌯</span> MeetingAI
+            <header className="flex-shrink-0 bg-[#333366]/80 backdrop-blur-xl text-white h-14 px-6 flex items-center justify-between shadow-lg z-50 border-b border-white/10">
+                <div className="flex items-center gap-3 text-xl font-bold tracking-tight">
+                    <span className="premium-gradient p-1.5 rounded-lg shadow-inner">⌯</span>
+                    <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">MeetingAI</span>
                 </div>
-                <div className="flex items-center gap-4 text-sm">
-
+                <div className="flex items-center gap-5 text-sm">
                     {/* Log Toggle */}
                     <button
                         onClick={() => setShowLogs(!showLogs)}
-                        className={`text-xs px-2 py-1 rounded border ${showLogs ? 'bg-white/20 border-white/50' : 'border-transparent hover:bg-white/10'}`}
+                        className={`text-[10px] font-mono px-3 py-1.5 rounded-full border transition-all duration-300 ${showLogs ? 'bg-white text-black border-white' : 'text-white/70 border-white/20 hover:border-white/50 hover:bg-white/5'}`}
                     >
-                        &gt;_ Terminal
+                        &gt;_ TERMINAL
                     </button>
 
-                    {status && <span className="opacity-80 text-xs italic">{status}</span>}
-                    <button onClick={toggleTheme} className="p-2 rounded-full hover:bg-white/10" title="Toggle Theme">
+                    {status && <span className="opacity-80 text-xs italic animate-pulse">{status}</span>}
+
+                    <button onClick={toggleTheme} className="p-2 rounded-full hover:bg-white/10 transition-colors" title="Toggle Theme">
                         {theme === 'light' ? '🌙' : '☀️'}
                     </button>
 
                     {/* User Profile in Header */}
-                    {isLoggedIn && userInfo && (
-                        <div className="flex items-center gap-3 bg-black/20 px-3 py-1 rounded-md border border-white/10">
-                            <div className="flex flex-col text-right leading-tight">
+                    {isLoggedIn && userInfo ? (
+                        <div className="flex items-center gap-3 bg-white/5 px-4 py-1.5 rounded-full border border-white/10 glass">
+                            <div className="flex flex-col text-right leading-none">
                                 <span className="text-xs font-bold text-white">{userInfo.displayName}</span>
-                                <span className="text-[10px] text-green-400">● Connected</span>
+                                <span className="text-[9px] text-green-400 font-bold uppercase tracking-widest mt-0.5">Connected</span>
                             </div>
                             <button
                                 onClick={() => { document.cookie = 'ms_token=; Max-Age=0'; setIsLoggedIn(false); setUserInfo(null); }}
-                                className="text-xs text-red-300 hover:text-white hover:underline"
+                                className="text-gray-400 hover:text-white transition-colors"
                                 title="Disconnect"
                             >
-                                ✕
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
                             </button>
                         </div>
-                    )}
-                    {!isLoggedIn && (
-                        <button
-                            onClick={() => window.location.href = '/api/auth/login?prompt=select_account'}
-                            className="text-xs bg-teams-primary hover:bg-teams-secondary text-white font-bold py-1 px-3 rounded"
+                    ) : (
+                        <a
+                            href="/api/auth/login"
+                            className="flex items-center gap-2 bg-[#444791] hover:bg-[#5b5fc7] px-4 py-1.5 rounded-md font-bold text-white transition-all shadow-md group"
                         >
-                            Connect Teams
-                        </button>
+                            <svg className="w-4 h-4 fill-white group-hover:scale-110 transition-transform" viewBox="0 0 24 24">
+                                <path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zM24 11.4H12.6V0H24v11.4z" />
+                            </svg>
+                            <span>Connect Teams</span>
+                        </a>
                     )}
                 </div>
             </header>
@@ -482,54 +525,52 @@ export default function MeetingAI() {
                 <div className="w-72 bg-teams-surface flex-shrink-0 flex flex-col border-r border-teams-border">
 
                     {/* --- NEW BOT ACTIONS SECTION --- */}
-                    {isLoggedIn && (
-                        <div className="p-4 border-b border-teams-border bg-black/10">
-                            <h3 className="text-xs uppercase font-bold text-teams-text-secondary mb-3 flex justify-between items-center">
-                                <span>Bot Actions</span>
-                                <button onClick={loadActiveMeetings} className="hover:text-white" title="Refresh Active Meetings">↻</button>
-                            </h3>
+                    <div className="p-4 border-b border-teams-border bg-black/10">
+                        <h3 className="text-xs uppercase font-bold text-teams-text-secondary mb-3 flex justify-between items-center">
+                            <span>Bot Actions</span>
+                            {isLoggedIn && <button onClick={loadActiveMeetings} className="hover:text-white" title="Refresh Active Meetings">↻</button>}
+                        </h3>
 
-                            {/* 1. AUTO DETECT / JOIN CURRENT */}
-                            {activeMeetings.find(m => m.isCurrent) && (
-                                <div className="mb-4">
-                                    <div className="text-xs text-green-400 font-bold mb-1 flex items-center gap-2">
-                                        <span className="relative flex h-2 w-2">
-                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                                        </span>
-                                        Happening Now
-                                    </div>
-                                    <button
-                                        onClick={() => launchBot(activeMeetings.find(m => m.isCurrent))}
-                                        className="w-full py-2 bg-gradient-to-r from-green-700 to-green-600 hover:from-green-600 hover:to-green-500 text-white text-xs font-bold rounded shadow-lg flex items-center justify-center gap-2 transition-all"
-                                    >
-                                        <span>🚀 Join &quot;{activeMeetings.find(m => m.isCurrent).subject}&quot;</span>
-                                    </button>
+                        {/* 1. AUTO DETECT / JOIN CURRENT (Only if logged in) */}
+                        {isLoggedIn && activeMeetings.find(m => m.isCurrent) && (
+                            <div className="mb-4">
+                                <div className="text-xs text-green-400 font-bold mb-1 flex items-center gap-2">
+                                    <span className="relative flex h-2 w-2">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                                    </span>
+                                    Happening Now
                                 </div>
-                            )}
+                                <button
+                                    onClick={() => launchBot(activeMeetings.find(m => m.isCurrent))}
+                                    className="w-full py-2 bg-gradient-to-r from-green-700 to-green-600 hover:from-green-600 hover:to-green-500 text-white text-xs font-bold rounded shadow-lg flex items-center justify-center gap-2 transition-all"
+                                >
+                                    <span>🚀 Join &quot;{activeMeetings.find(m => m.isCurrent).subject}&quot;</span>
+                                </button>
+                            </div>
+                        )}
 
-                            {/* 2. MANUAL JOIN */}
-                            <div className="space-y-2">
-                                <label className="text-[10px] text-gray-400 uppercase font-semibold">Join by Link</label>
-                                <div className="flex gap-1">
-                                    <input
-                                        type="text"
-                                        value={manualLink}
-                                        onChange={(e) => setManualLink(e.target.value)}
-                                        placeholder="Paste Teams URL..."
-                                        className="flex-1 bg-black/20 border border-gray-700 text-xs text-white rounded px-2 py-1 focus:border-teams-primary focus:outline-none"
-                                    />
-                                    <button
-                                        onClick={joinViaLink}
-                                        disabled={!manualLink}
-                                        className="bg-teams-primary hover:bg-teams-secondary text-white px-3 py-1 rounded text-xs font-bold disabled:opacity-50"
-                                    >
-                                        Go
-                                    </button>
-                                </div>
+                        {/* 2. MANUAL JOIN (Always show) */}
+                        <div className="space-y-2">
+                            <label className="text-[10px] text-gray-400 uppercase font-semibold">Join by Link</label>
+                            <div className="flex gap-1">
+                                <input
+                                    type="text"
+                                    value={manualLink}
+                                    onChange={(e) => setManualLink(e.target.value)}
+                                    placeholder="Paste Teams URL..."
+                                    className="flex-1 bg-black/20 border border-gray-700 text-xs text-white rounded px-2 py-1 focus:border-teams-primary focus:outline-none"
+                                />
+                                <button
+                                    onClick={joinViaLink}
+                                    disabled={!manualLink}
+                                    className="bg-teams-primary hover:bg-teams-secondary text-white px-3 py-1 rounded text-xs font-bold disabled:opacity-50"
+                                >
+                                    Go
+                                </button>
                             </div>
                         </div>
-                    )}
+                    </div>
 
                     {/* UPCOMING / ACTIVE MEETINGS (Calendar) */}
                     {isLoggedIn && activeMeetings.length > 0 && (
@@ -603,29 +644,25 @@ export default function MeetingAI() {
                             )}
 
                             {meetings.map(m => {
-                                const isRecent = new Date(m.importedAt) > new Date(Date.now() - 12 * 60 * 60 * 1000);
+                                const createdDate = new Date(m.created);
+                                const isRecent = createdDate > new Date(Date.now() - 24 * 60 * 60 * 1000);
                                 return (
                                     <div
-                                        key={m.meetingId}
-                                        className={`group relative p-3 rounded-md cursor-pointer border-l-4 ${selectedMeeting?.meetingId === m.meetingId ? 'bg-black/20 border-teams-primary' : 'border-transparent hover:bg-white/5'}`}
+                                        key={m.filename}
+                                        className={`group relative p-3 rounded-md cursor-pointer border-l-4 ${selectedMeeting?.filename === m.filename ? 'bg-black/20 border-teams-primary' : 'border-transparent hover:bg-white/5'}`}
                                         onClick={() => handleMeetingSelect(m)}
                                     >
                                         <div className="flex items-center gap-2 mb-1">
-                                            <h4 className="font-semibold truncate text-sm">
-                                                {m.subject || m.meetingId}
+                                            <h4 className="font-semibold truncate text-sm text-teams-text-primary">
+                                                {m.meetingId === 'Manual Recording' ? '📝 Manual Meeting' : `📅 ${m.meetingId}`}
                                             </h4>
-                                            {isRecent && <span className="text-[9px] bg-teams-primary/20 text-teams-primary px-1 rounded-sm font-bold border border-teams-primary/30">RECENT</span>}
+                                            {isRecent && <span className="text-[9px] bg-teams-primary/20 text-teams-primary px-1 rounded-sm font-bold border border-teams-primary/30">NEW</span>}
                                         </div>
-                                        <p className="text-xs text-teams-text-secondary">
-                                            {m.entries?.length || 0} segments • {new Date(m.importedAt || Date.now()).toLocaleDateString()}
+                                        <p className="text-xs text-teams-text-secondary flex justify-between">
+                                            <span>{createdDate.toLocaleDateString()} {createdDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                            <span className="opacity-70">{(m.size / 1024).toFixed(1)} KB</span>
                                         </p>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); handleDeleteMeeting(m.meetingId); }}
-                                            className="absolute top-2 right-2 p-1 text-red-500 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-500/20"
-                                            title="Delete Meeting"
-                                        >
-                                            ✘
-                                        </button>
+
                                     </div>
                                 );
                             })}
@@ -642,142 +679,301 @@ export default function MeetingAI() {
 
                 {/* Main Content (Center) */}
                 <main className="flex-1 flex flex-col bg-teams-bg overflow-hidden relative">
-                    {selectedBot ? (
-                        <div className="flex-1 flex flex-col p-6 space-y-6">
-                            <div className="bg-teams-surface rounded-lg shadow-lg p-8 flex flex-col items-center justify-center text-center space-y-4">
-                                <div className="w-16 h-16 rounded-full border-4 border-green-500 border-t-transparent animate-spin mb-4" />
-                                <h2 className="text-2xl font-bold text-green-400">Live Meeting Session</h2>
-                                <p className="text-teams-text-secondary max-w-md">
-                                    The bot is currently processed the meeting <b>{selectedBot.metadata?.subject || 'Untitled'}</b>.
-                                    Segments will appear in your library automatically once processed.
-                                </p>
-                                <div className="flex gap-4 mt-4">
-                                    <div className="px-4 py-2 rounded bg-white/5 border border-white/10 text-xs font-mono">
-                                        Status: <span className="text-green-400">{selectedBot.status}</span>
-                                    </div>
-                                    <div className="px-4 py-2 rounded bg-white/5 border border-white/10 text-xs font-mono">
-                                        ID: <span className="text-teams-text-secondary">{selectedBot.id}</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* LIVE TRANSCRIPT */}
-                            <div className="flex-[2] bg-teams-surface border border-teams-border rounded-lg overflow-hidden flex flex-col min-h-0">
-                                <div className="px-4 py-2 bg-black/20 border-b border-teams-border flex justify-between items-center">
-                                    <h3 className="text-xs uppercase font-bold text-green-400">Live Transcript</h3>
-                                    <span className="text-[10px] text-gray-500">Auto-scrolling</span>
-                                </div>
-                                <LiveTranscript vttContent={selectedBot.vttContent} />
-                            </div>
-
-                            {/* LIVE LOGS */}
-                            <div className="flex-1 bg-black/40 rounded-lg p-4 font-mono text-[11px] overflow-hidden flex flex-col min-h-0 border border-t-0 border-white/5">
-                                <h3 className="text-xs uppercase font-bold text-white/40 mb-2">Bot Operations Log</h3>
-                                <div className="flex-1 overflow-y-auto space-y-1 scrollbar-hide">
-                                    <LogViewer logId={selectedBot.id} contained={true} />
-                                </div>
-                            </div>
-                        </div>
-                    ) : selectedMeeting ? (
+                    {selectedBot || selectedMeeting ? (
                         <>
-                            {/* Stage Header */}
-                            <div className="flex-shrink-0 p-6 border-b border-teams-border bg-teams-surface">
-                                <h2 className="text-2xl font-bold">{selectedMeeting.meetingId}</h2>
-                                <p className="text-sm text-teams-text-secondary">
-                                    Source: {selectedMeeting.source} | Duration: {selectedMeeting.durationSeconds || 'Unknown'}s
-                                </p>
+                            {/* Unified Stage Header */}
+                            <div className="flex-shrink-0 p-6 border-b border-teams-border bg-teams-surface relative overflow-hidden">
+                                {selectedBot && <div className="absolute top-0 left-0 w-full h-0.5 premium-gradient-animate opacity-50" />}
+
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <h2 className="text-2xl font-black tracking-tight text-white">
+                                                {selectedBot ? (selectedBot.metadata?.subject || 'Live Recording') : selectedMeeting.meetingId}
+                                            </h2>
+                                            {selectedBot ? (
+                                                <span className="px-2 py-0.5 rounded bg-red-500/20 text-red-400 text-[10px] font-black uppercase tracking-widest border border-red-500/30 animate-pulse">
+                                                    Live
+                                                </span>
+                                            ) : (
+                                                <span className="px-2 py-0.5 rounded bg-teams-primary/20 text-teams-primary text-[10px] font-bold uppercase tracking-widest border border-teams-primary/30">
+                                                    Archived
+                                                </span>
+                                            )}
+                                        </div>
+                                        <p className="text-xs text-teams-text-secondary">
+                                            {selectedBot ? `Session ID: ${selectedBot.id.substring(0, 8)}...` : `Source: ${selectedMeeting.source} | Duration: ${selectedMeeting.durationSeconds || 'Unknown'}s`}
+                                        </p>
+                                    </div>
+
+                                    {selectedBot && (
+                                        <div className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-xl border border-white/10">
+                                            <div className="flex gap-1">
+                                                <div className="w-1 h-4 bg-green-500 animate-pulse" />
+                                                <div className="w-1 h-3 bg-green-500/60 animate-pulse delay-75" />
+                                                <div className="w-1 h-4 bg-green-500/80 animate-pulse delay-150" />
+                                            </div>
+                                            <span className="text-xs font-bold text-green-400 font-mono">{selectedBot.status}</span>
+                                        </div>
+                                    )}
+                                </div>
+
                                 <div className="mt-4 flex gap-6 border-b border-teams-border">
-                                    <button onClick={() => setView('overview')} className={`py-2 text-sm font-semibold border-b-2 ${view === 'overview' ? 'text-teams-primary border-teams-primary' : 'text-teams-text-secondary border-transparent hover:text-white'}`}>Transcript</button>
-                                    <button onClick={() => { setView('summary'); getSummary(); }} className={`py-2 text-sm font-semibold border-b-2 ${view === 'summary' ? 'text-teams-primary border-teams-primary' : 'text-teams-text-secondary border-transparent hover:text-white'}`}>AI Summary</button>
-                                    <button onClick={() => { setView('actions'); getActions(); }} className={`py-2 text-sm font-semibold border-b-2 ${view === 'actions' ? 'text-teams-primary border-teams-primary' : 'text-teams-text-secondary border-transparent hover:text-white'}`}>Action Items</button>
-                                    <button onClick={() => setView('chat')} className={`py-2 text-sm font-semibold border-b-2 ${view === 'chat' ? 'text-teams-primary border-teams-primary' : 'text-teams-text-secondary border-transparent hover:text-white'}`}>☕︎ Chat</button>
+                                    <button onClick={() => setView('overview')} className={`py-2 text-sm font-semibold border-b-2 transition-all ${view === 'overview' ? 'text-teams-primary border-teams-primary' : 'text-teams-text-secondary border-transparent hover:text-white'}`}>
+                                        Transcript
+                                    </button>
+
+                                    {/* Locked tabs for live sessions */}
+                                    {['summary', 'actions', 'chat'].map(tab => {
+                                        const isLocked = !!selectedBot;
+                                        const labels = { summary: 'AI Summary', actions: 'Action Items', chat: '☕︎ Chat' };
+                                        return (
+                                            <button
+                                                key={tab}
+                                                disabled={isLocked}
+                                                onClick={() => { setView(tab); if (tab === 'summary') getSummary(); if (tab === 'actions') getActions(); }}
+                                                className={`py-2 text-sm font-semibold border-b-2 transition-all relative group
+                                                    ${view === tab ? 'text-teams-primary border-teams-primary' : 'text-teams-text-secondary border-transparent hover:text-white'}
+                                                    ${isLocked ? 'opacity-30 cursor-not-allowed' : ''}`}
+                                            >
+                                                {labels[tab]}
+                                                {isLocked && (
+                                                    <span className="absolute -top-1 -right-2 text-[8px] bg-gray-700 text-gray-400 px-1 rounded border border-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        Wait for end
+                                                    </span>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+
+                                    {selectedBot && (
+                                        <button onClick={() => setView('logs')} className={`py-2 text-sm font-semibold border-b-2 transition-all ${view === 'logs' ? 'text-teams-primary border-teams-primary' : 'text-teams-text-secondary border-transparent hover:text-white'}`}>
+                                            Bot Logs
+                                        </button>
+                                    )}
                                 </div>
                             </div>
 
                             {/* Stage Content */}
-                            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                            <div className="flex-1 overflow-hidden p-6 relative">
                                 {view === 'overview' && (
-                                    <div className="bg-teams-surface rounded-lg shadow-lg p-6">
-                                        <h3 className="text-lg font-semibold mb-4">Transcript Preview</h3>
-                                        <div className="space-y-4 text-sm">
-                                            {selectedMeeting.entries?.map((e, i) => (
-                                                <div key={i} className="flex gap-4 items-start">
-                                                    <div className="font-semibold text-teams-secondary w-24 shrink-0">{e.speaker}</div>
-                                                    <div className="flex-1">{e.text}</div>
-                                                    <div className="text-xs text-teams-text-secondary/70">{e.start}</div>
-                                                </div>
-                                            ))}
+                                    <div className="h-full flex flex-col bg-teams-surface rounded-2xl shadow-xl border border-teams-border overflow-hidden glass">
+                                        <div className="p-4 border-b border-teams-border flex justify-between items-center bg-black/20">
+                                            <h3 className="text-sm uppercase font-black tracking-widest text-white/80">
+                                                {selectedBot ? 'Real-Time Voice Streaming' : 'Full Meeting Transcript'}
+                                            </h3>
+                                            {!selectedBot && (
+                                                <button
+                                                    className="text-[10px] bg-teams-primary hover:bg-teams-secondary px-3 py-1 rounded text-white font-bold transition-all flex items-center gap-1 shadow-lg"
+                                                    onClick={() => {
+                                                        const blob = new Blob([meetingContent], { type: 'text/vtt' });
+                                                        const url = URL.createObjectURL(blob);
+                                                        const a = document.createElement('a');
+                                                        a.href = url;
+                                                        a.download = selectedMeeting.filename || 'transcript.vtt';
+                                                        a.click();
+                                                    }}
+                                                >
+                                                    <span>DOWNLOAD VTT</span>
+                                                </button>
+                                            )}
                                         </div>
+                                        <LiveTranscript vttContent={selectedBot ? selectedBot.vttContent : meetingContent} />
                                     </div>
                                 )}
 
-                                {(view === 'summary' || view === 'actions') && (
-                                    <div className="bg-teams-surface rounded-lg shadow-lg p-6">
+                                {(view === 'summary' || view === 'actions') && !selectedBot && (
+                                    <div className="bg-teams-surface rounded-2xl shadow-xl p-8 border border-teams-border glass h-full overflow-y-auto">
                                         {(view === 'summary' && !summary) || (view === 'actions' && !actionItems) ? (
-                                            <div className="flex items-center gap-2 text-teams-text-secondary"><Spinner /><span>Generating...</span></div>
+                                            <div className="flex items-center justify-center h-full gap-3 text-teams-text-secondary">
+                                                <div className="w-6 h-6 border-4 border-teams-primary border-t-transparent rounded-full animate-spin" />
+                                                <span className="font-bold uppercase tracking-widest text-xs">Generating AI Content...</span>
+                                            </div>
                                         ) : view === 'summary' ? (
-                                            summary.error ? <p className="text-red-400">Error: {summary.error}</p> : <div className="prose prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: summary.summary.replace(/\n/g, '<br/>') }} />
+                                            summary.error ? <p className="text-red-400">Error: {summary.error}</p> :
+                                                <div className="prose prose-invert max-w-none">
+                                                    <div className="bg-white/5 p-6 rounded-2xl border border-white/10 leading-loose text-gray-200"
+                                                        dangerouslySetInnerHTML={{ __html: summary.summary.replace(/\n/g, '<br/>') }}
+                                                    />
+                                                </div>
                                         ) : (
                                             actionItems.error ? <p className="text-red-400">Error: {actionItems.error}</p> : (
-                                                <table className="w-full text-sm text-left">
-                                                    <thead className="border-b-2 border-teams-border">
-                                                        <tr>
-                                                            <th className="p-2">Task</th><th className="p-2 w-40">Owner</th><th className="p-2 w-24">Priority</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {actionItems.actionItems?.map((item, i) => (
-                                                            <tr key={i} className="border-b border-teams-border/50">
-                                                                <td className="p-3">{item.task}</td>
-                                                                <td className="p-3"><span className="bg-white/10 px-2 py-1 rounded-full text-xs">{item.owner}</span></td>
-                                                                <td className={`p-3 font-semibold ${item.priority?.toLowerCase().includes('high') ? 'text-red-400' : ''}`}>{item.priority}</td>
+                                                <div className="space-y-4">
+                                                    <h4 className="text-sm font-black text-teams-primary uppercase tracking-widest mb-6">Identified Action Items</h4>
+                                                    <table className="w-full text-sm text-left">
+                                                        <thead className="text-gray-500 uppercase text-[10px] font-black tracking-widest">
+                                                            <tr className="border-b border-teams-border">
+                                                                <th className="pb-4 px-2">Task Description</th>
+                                                                <th className="pb-4 px-2 w-40">Owner</th>
+                                                                <th className="pb-4 px-2 w-24">Priority</th>
                                                             </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-white/5">
+                                                            {actionItems.actionItems?.map((item, i) => (
+                                                                <tr key={i} className="hover:bg-white/5 transition-colors group">
+                                                                    <td className="py-4 px-2 text-gray-100 font-medium">{item.task}</td>
+                                                                    <td className="py-4 px-2">
+                                                                        <span className="bg-teams-primary/20 text-teams-primary px-3 py-1 rounded-full text-[10px] font-black border border-teams-primary/30">
+                                                                            {item.owner}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="py-4 px-2">
+                                                                        <span className={`text-[10px] font-black px-2 py-0.5 rounded ${item.priority?.toLowerCase().includes('high') ? 'bg-red-500 text-white' : 'bg-gray-700 text-gray-300'}`}>
+                                                                            {item.priority?.toUpperCase()}
+                                                                        </span>
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
                                             )
                                         )}
                                     </div>
                                 )}
 
-                                {view === 'chat' && (
-                                    <div className="flex flex-col h-full">
-                                        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                                            {chatMessages.length === 0 && <div className="text-center text-teams-text-secondary">Ask questions about the meeting.</div>}
+                                {view === 'chat' && !selectedBot && (
+                                    <div className="flex flex-col h-full bg-teams-surface rounded-2xl shadow-xl border border-teams-border overflow-hidden glass">
+                                        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                                            {chatMessages.length === 0 && (
+                                                <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-50">
+                                                    <div className="text-4xl">☕︎</div>
+                                                    <p className="text-sm font-bold uppercase tracking-widest">Ask anything about this meeting</p>
+                                                </div>
+                                            )}
                                             {chatMessages.map((m, i) => (
-                                                <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                                    <div className={`max-w-xl p-3 rounded-lg ${m.role === 'user' ? 'bg-teams-primary text-white' : 'bg-teams-surface'}`}>
-                                                        <p className="whitespace-pre-wrap">{m.content}</p>
-                                                        {m.sources && <div className="mt-2 pt-2 border-t border-white/20 text-xs space-y-1">
-                                                            {m.sources.map((s, si) => <div key={si} className="p-1.5 bg-black/20 rounded truncate"><b>Source:</b> {s.text}</div>)}
-                                                        </div>}
+                                                <div key={i} className={`flex gap-4 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                                    <div className={`max-w-[80%] p-4 rounded-2xl shadow-lg border ${m.role === 'user' ? 'bg-teams-primary text-white border-white/10' : 'bg-black/40 text-gray-200 border-white/5'}`}>
+                                                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>
+                                                        {m.sources && (
+                                                            <div className="mt-4 pt-3 border-t border-white/10 space-y-2">
+                                                                <span className="text-[9px] font-black text-teams-primary uppercase tracking-widest">Sources Found</span>
+                                                                {m.sources.map((s, si) => (
+                                                                    <div key={si} className="p-2 bg-black/30 rounded-lg text-[10px] italic border border-white/5 text-gray-400">
+                                                                        &quot;{s.text.substring(0, 150)}...&quot;
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             ))}
                                             <div ref={chatEndRef} />
                                         </div>
-                                        <div className="p-4 border-t border-teams-border flex gap-2">
+                                        <div className="p-4 bg-black/20 border-t border-teams-border flex gap-3">
                                             <input
                                                 type="text"
                                                 value={chatInput}
                                                 onChange={e => setChatInput(e.target.value)}
                                                 onKeyDown={e => e.key === 'Enter' && sendChat()}
-                                                placeholder="Ask a follow-up question..."
-                                                className="flex-1 bg-teams-surface border border-teams-border rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teams-primary"
+                                                placeholder="Ask a question..."
+                                                className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-teams-primary/50 transition-all placeholder:text-gray-600"
                                             />
-                                            <button onClick={sendChat} className="bg-teams-primary hover:bg-teams-secondary text-white font-semibold py-2 px-4 rounded-md transition-colors">Send</button>
+                                            <button onClick={sendChat} className="bg-teams-primary hover:bg-teams-secondary text-white font-black uppercase text-[10px] tracking-widest px-6 py-3 rounded-xl transition-all shadow-lg active:scale-95">
+                                                Send
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {view === 'logs' && selectedBot && (
+                                    <div className="h-full bg-black/60 rounded-2xl p-6 font-mono text-[11px] overflow-hidden flex flex-col border border-white/10 shadow-2xl glass">
+                                        <div className="flex items-center justify-between mb-4 border-b border-white/10 pb-3">
+                                            <h3 className="text-xs uppercase font-black text-white/40 tracking-widest">Internal Bot Operations</h3>
+                                            <span className="text-[9px] bg-green-500/10 text-green-500 px-2 py-0.5 rounded border border-green-500/20">AGENT LOGS</span>
+                                        </div>
+                                        <div className="flex-1 overflow-y-auto scrollbar-hide">
+                                            <LogViewer logId={selectedBot.id} contained={true} />
                                         </div>
                                     </div>
                                 )}
                             </div>
                         </>
                     ) : (
-                        <div className="flex flex-col items-center justify-center h-full text-center text-teams-text-secondary">
-                            <div className="text-6xl mb-4">☕︎</div>
-                            <h3 className="text-xl font-semibold text-teams-text-primary">Select a meeting</h3>
-                            <p className="max-w-sm">Use the sidebar to join active meetings or view past transcripts.</p>
+                        <div className="flex flex-col items-center justify-center h-full text-center px-6">
+                            {/* ACTIVE BOTS "HAPPENING NOW" SECTION */}
+                            {activeBots.length > 0 ? (
+                                <div className="max-w-4xl w-full">
+                                    <div className="flex items-center justify-center gap-3 mb-8">
+                                        <span className="w-3 h-3 bg-red-500 rounded-full animate-ping" />
+                                        <h2 className="text-3xl font-black uppercase tracking-tighter text-white">Happening Now</h2>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+                                        {activeBots.map(bot => (
+                                            <div
+                                                key={bot.id}
+                                                onClick={() => handleBotSelect(bot)}
+                                                className="group relative bg-teams-surface border border-white/10 rounded-3xl p-8 cursor-pointer hover:border-teams-primary/50 hover:scale-[1.02] transition-all shadow-2xl glass-dark active-bot-card overflow-hidden"
+                                            >
+                                                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 to-amber-500 opacity-50 group-hover:opacity-100 transition-opacity" />
+
+                                                <div className="flex items-start justify-between mb-6">
+                                                    <div className="text-left">
+                                                        <h3 className="text-xl font-black text-white group-hover:text-teams-primary transition-colors mb-1">
+                                                            {bot.metadata?.subject || 'Untitled Meeting'}
+                                                        </h3>
+                                                        <span className="text-[10px] font-mono text-gray-500">SESSION: {bot.id.substring(0, 12)}</span>
+                                                    </div>
+                                                    <div className="bg-red-500/10 border border-red-500/20 px-3 py-1 rounded-full">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+                                                            <span className="text-[9px] font-black text-red-500 uppercase tracking-widest">Recording</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-4 py-4 px-6 bg-white/5 rounded-2xl border border-white/5 mb-6 group-hover:bg-white/10 transition-all">
+                                                    <div className="flex gap-1.5">
+                                                        <div className="w-1.5 h-8 bg-teams-primary animate-pulse" />
+                                                        <div className="w-1.5 h-5 bg-teams-primary/60 animate-pulse delay-75" />
+                                                        <div className="w-1.5 h-6 bg-teams-primary/80 animate-pulse delay-150" />
+                                                    </div>
+                                                    <div className="text-left">
+                                                        <p className="text-[10px] uppercase font-black text-gray-500 tracking-widest mb-0.5">Current Speaker</p>
+                                                        <p className="text-sm font-bold text-white leading-none">{bot.currentSpeaker || 'Listening...'}</p>
+                                                    </div>
+                                                </div>
+
+                                                <button className="w-full bg-teams-primary py-4 rounded-xl font-black text-xs uppercase tracking-[0.2em] text-white shadow-xl group-hover:bg-teams-secondary transition-all">
+                                                    Watch Live Stream
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="mt-12 pt-12 border-t border-white/5 w-64 mx-auto">
+                                        <p className="text-[10px] font-black text-gray-700 uppercase tracking-widest mb-4">Or Select From History</p>
+                                        <div className="text-4xl opacity-20">☕︎</div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    <div className="text-6xl mb-4 animate-bounce">☕︎</div>
+                                    <h3 className="text-3xl font-black tracking-tighter text-teams-text-primary uppercase">Select a meeting</h3>
+                                    <p className="max-w-sm text-teams-text-secondary leading-relaxed mx-auto text-lg opacity-80">
+                                        Join an active session above or browse your archived transcripts in the library sidebar.
+                                    </p>
+
+                                    {!isLoggedIn && (
+                                        <div className="pt-8">
+                                            <a
+                                                href="/api/auth/login"
+                                                className="flex items-center gap-4 bg-gradient-to-r from-[#444791] to-[#5b5fc7] px-12 py-5 rounded-2xl font-black text-xl text-white transition-all shadow-[0_20px_50px_rgba(68,71,145,0.4)] hover:scale-105 active:scale-95 group border border-white/10"
+                                            >
+                                                <svg className="w-8 h-8 fill-white group-hover:rotate-12 transition-transform" viewBox="0 0 24 24">
+                                                    <path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zM24 11.4H12.6V0H24v11.4z" />
+                                                </svg>
+                                                <span>Connect Teams Workspace</span>
+                                            </a>
+                                            <p className="mt-6 text-xs text-gray-500 font-bold uppercase tracking-widest opacity-50 italic">
+                                                * Cloud ingestion requires organizational access
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
+
                 </main>
 
                 {/* Right Log Panel */}

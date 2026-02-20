@@ -1,0 +1,1146 @@
+﻿{
+    "bots":  [
+                 {
+                     "id":  "8703615b-ab60-4405-98cd-6343520f0576",
+                     "joinUrl":  "https://teams.microsoft.com/meet/41278206054034?p=rro0Cr23a8NUSGXfIX",
+                     "metadata":  {
+
+                                  },
+                     "status":  "IN_MEETING",
+                     "logs":  [
+                                  {
+                                      "timestamp":  "2026-02-18T02:40:47.176Z",
+                                      "message":  "Status: LAUNCHING",
+                                      "type":  "status"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:40:52.365Z",
+                                      "message":  "ð¤ Bot Launching (Stable Mode) [PID: 21688]...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:40:57.544Z",
+                                      "message":  "â\u0085 CDP permissions granted (audioCapture, videoCapture)",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:40:57.749Z",
+                                      "message":  "Status: NAVIGATING",
+                                      "type":  "status"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:40:57.789Z",
+                                      "message":  "ð Navigating to meeting...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:03.055Z",
+                                      "message":  "â³ Waiting for page hydration (rendering)...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:08.065Z",
+                                      "message":  "â\u0085 Page Loaded \u0026 Hydrated.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:08.338Z",
+                                      "message":  "ð¸ Screenshot taken: step1-hydrated.png",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:08.342Z",
+                                      "message":  "ð Checking for \"Continue on this browser\"...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:08.618Z",
+                                      "message":  "[2026-02-18T02:41:08.610Z] â\u0085 Clicking landing button: \"Continue on this browser\" (Attempt 1)...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:09.465Z",
+                                      "message":  "[BOT] [BROWSER] [ExpLoader] Getting things ready...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:09.652Z",
+                                      "message":  "[BOT] [BROWSER] [ExpLoader] ExperienceLoader: OCDI redirect: Not redirecting - not enabled",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:20.832Z",
+                                      "message":  "[BOT] [BROWSER] [Auth]: auth_cache initialized",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:20.902Z",
+                                      "message":  "[BOT] [BROWSER] [Auth]: authTelemetryProvider initialized",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:21.070Z",
+                                      "message":  "[BOT] [BROWSER] [Auth]: [Telemetry][64b6fd87-d001-4c96-8e06-60fced26da2a][auth_web_initialization] [start] - telemetry provider created for createAuthenticationServiceInstance, source: core-auth-tasks::init with shouldCreateScenario: [true]",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:24.309Z",
+                                      "message":  "[BOT] [BROWSER] Unhandled error/rejection {\"isTrusted\":true}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:24.882Z",
+                                      "message":  "[BOT] [BROWSER] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:26.032Z",
+                                      "message":  "[2026-02-18T02:41:26.021Z] â¹ï¸ No \"Continue\" button found yet (Attempt 2)...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:26.944Z",
+                                      "message":  "[BOT] [BROWSER] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:26.971Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/griffel-ba53d3e2f8970285.css was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:26.987Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/504984-6e9ad8dafa5cf0d7.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:26.988Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/services-calling-service-adapters-b882dfddf71d272c.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:26.988Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/900056-d7dbd752946dd545.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:26.995Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/928024-7957504fbf493430.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:26.999Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/libphonenumber-bundle-b883387572f4762e.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:27.008Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/574813-89acd68699b526e7.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:27.028Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/905530-9bed59b31501e32a.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:27.036Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/717058-0410c648c71a3a1a.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:27.044Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/55953-9ee29487911fca16.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:27.045Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/456642-595af8f3dfaaf78b.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:27.054Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/854166-e232845ceaddd6f7.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:29.906Z",
+                                      "message":  "[BOT] [BROWSER] BSSO Telemetry: {\"result\":\"Error\",\"error\":\"NoExtension\",\"type\":\"ChromeSsoTelemetry\",\"data\":{},\"traces\":[\"BrowserSSO Initialized\",\"Creating ChromeBrowserCore provider\",\"Sending message for method CreateProviderAsync\",\"Received message for method CreateProviderAsync\",\"Error: ChromeBrowserCore error NoExtension: Extension is not installed.\"]}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:30.643Z",
+                                      "message":  "[2026-02-18T02:41:30.642Z] â¹ï¸ No \"Continue\" button found yet (Attempt 3)...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:31.032Z",
+                                      "message":  "[BOT] [BROWSER] An iframe which has both allow-scripts and allow-same-origin for its sandbox attribute can escape its sandboxing.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:34.010Z",
+                                      "message":  "[BOT] [BROWSER] [Auth]: auth_cache initialized",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:34.010Z",
+                                      "message":  "[BOT] [BROWSER] [Auth]: authTelemetryProvider initialized",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:34.039Z",
+                                      "message":  "[2026-02-18T02:41:34.038Z] â¹ï¸ No \"Continue\" button found yet (Attempt 4)...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:34.073Z",
+                                      "message":  "[BOT] [BROWSER] CoreSettings/EcsParameters: osVersion parsed from deviceInfo is not a proper semver \u0027NT 10.0\u0027.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:34.345Z",
+                                      "message":  "[BOT] [BROWSER] SkypeEcsConfigAdapter: osVersion parsed from deviceInfo is not a proper semver \u0027NT 10.0\u0027.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:35.831Z",
+                                      "message":  "[BOT] [BROWSER] i18n: The namespace \"framework\" has not been loaded. The only loaded namespaces: \"calling, peoplePicker, auth, channels, recurrence, breakoutRooms\"",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:36.241Z",
+                                      "message":  "[BOT] [BROWSER] Message received from main script",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:37.169Z",
+                                      "message":  "â\u0085 Already on Pre-Join screen.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:37.170Z",
+                                      "message":  "Status: PRE_JOIN",
+                                      "type":  "status"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:37.170Z",
+                                      "message":  "[BOT] ð Preparing to join meeting...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:37.171Z",
+                                      "message":  "ð Current URL: https://teams.microsoft.com/light-meetings/launch?p=rro0Cr23a8NUSGXfIX\u0026anon=true\u0026lightExperience=true\u0026correlationId=5ccf0dd1-7a96-47ae-96f9-dec72ab7eb35\u0026agent=web\u0026coords=eyJtZWV0aW5nVXJsIjoiaHR0cHM6Ly90ZWFtcy5taWNyb3NvZnQuY29tL21lZXQvNDEyNzgyMDYwNTQwMzQ%2FcD1ycm8wQ3IyM2E4TlVTR1hmSVgmYW5vbj10cnVlJmxpZ2h0RXhwZXJpZW5jZT10cnVlJmNvcnJlbGF0aW9uSWQ9NWNjZjBkZDEtN2E5Ni00N2FlLTk2ZjktZGVjNzJhYjdlYjM1JmFub249dHJ1ZSIsIm1lZXRpbmdDb2RlIjoiNDEyNzgyMDYwNTQwMzQiLCJwYXNzY29kZSI6InJybzBDcjIzYThOVVNHWGZJWCJ9\u0026deeplinkId=b54fb4de-97d4-43b8-8164-2409ae1088ae",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:37.178Z",
+                                      "message":  "[BOT] â\u0085 Join screen detected",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:37.179Z",
+                                      "message":  "[BOT] âï¸ Setting bot name (Nuclear strategy)...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:37.180Z",
+                                      "message":  "[BOT] [BROWSER] [NAME] Found 1 visible text inputs",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:37.185Z",
+                                      "message":  "[BOT] [BROWSER] [NAME] â\u0085 Name set via React setter",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:37.186Z",
+                                      "message":  "â\u0085 Name set via JS injection",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:37.193Z",
+                                      "message":  "[BOT] [BROWSER] Blocked aria-hidden on an element because its descendant retained focus. The focus must not be hidden from assistive technology users. Avoid using aria-hidden on a focused element or its ancestor. Consider using the inert attribute instead, which will also prevent focus. For more details, see the aria-hidden section of the WAI-ARIA specification at https://w3c.github.io/aria/#aria-hidden.\nElement with focus: \u003cinput.fui-Input__input r12stul0 ___etraft0 f1w2t2ij f1oo480s f7nlbp4 fhovq9v f1sw78cg f17mccla f1fjxbv2 flh3ekv\u003e\nAncestor with aria-hidden: \u003cdiv#root\u003e",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:37.791Z",
+                                      "message":  "[BOT] ð Ensuring Camera and Mic are OFF...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:38.803Z",
+                                      "message":  "Status: JOINING",
+                                      "type":  "status"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:38.804Z",
+                                      "message":  "[BOT] ð Joining meeting...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:40.314Z",
+                                      "message":  "[BOT] ð¯ Join button found, attempting robust click...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:40.658Z",
+                                      "message":  "â\u0085 Join sequence initiated",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:40.658Z",
+                                      "message":  "ð Checking for audio selection modal (Waiting up to 10s)...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:42.366Z",
+                                      "message":  "[BOT] [BROWSER] CallTitleService: callTitleService: getDefaultCallTitle failed",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:50.737Z",
+                                      "message":  "ð¸ Screenshot: before-second-join.png",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:50.739Z",
+                                      "message":  "â\u0085 Audio selection modal confirmed (Computer audio detected)",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:50.740Z",
+                                      "message":  "â ï¸ Permission denial modal detected â clicking through it...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:52.750Z",
+                                      "message":  "â\u0085 CDP permissions re-granted after permission modal",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:53.261Z",
+                                      "message":  "[BOT] [BROWSER] [AUDIO] Selected Computer audio option",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:53.264Z",
+                                      "message":  "[BOT] [BROWSER] [AUDIO] Clicked Computer audio radio button",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:54.276Z",
+                                      "message":  "â\u0085 Computer audio selection attempted",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:54.288Z",
+                                      "message":  "[BOT] â\u0085 Clicked SECOND \"Join now\" button (Attempt 1)",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:54.288Z",
+                                      "message":  "[BOT] ð¤ Starting LISTEN MODE immediately...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:54.289Z",
+                                      "message":  "Status: IN_MEETING",
+                                      "type":  "status"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:54.289Z",
+                                      "message":  "ð¤ Microphones active - transcription sync enabled.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:54.395Z",
+                                      "message":  "[BOT] [BROWSER] [EAR] Initializing Virtual Ear...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:54.422Z",
+                                      "message":  "[BOT] [BROWSER] [EAR] MediaRecorder active (audio/webm;codecs=opus)",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:55.034Z",
+                                      "message":  "[BOT] [BROWSER] Message received from main script",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:57.434Z",
+                                      "message":  "ð Confirming join state...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:59.422Z",
+                                      "message":  "[BOT] [BROWSER] [EAR] Hooked participant stream: mainAudio-1000",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:41:59.422Z",
+                                      "message":  "[BOT] [BROWSER] [EAR] Total active streams: 1",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:02.442Z",
+                                      "message":  "ð State check #1...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:02.524Z",
+                                      "message":  "ð¸ Diagnostic screenshot: state-check-1.png",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:02.528Z",
+                                      "message":  "[BOT] [BROWSER] [MODAL] Re-clicked Join now with Computer audio",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:04.534Z",
+                                      "message":  "ð State check #2...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:04.542Z",
+                                      "message":  "[BOT] [BROWSER] [MODAL] Re-clicked Join now with Computer audio",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:06.552Z",
+                                      "message":  "ð State check #3...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:06.578Z",
+                                      "message":  "[BOT] [BROWSER] [MODAL] Re-clicked Join now with Computer audio",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:08.703Z",
+                                      "message":  "ð State check #4...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:08.736Z",
+                                      "message":  "[BOT] [BROWSER] [MODAL] Re-clicked Join now with Computer audio",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:10.822Z",
+                                      "message":  "ð State check #5...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:11.031Z",
+                                      "message":  "[BOT] [BROWSER] [MODAL] Re-clicked Join now with Computer audio",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:13.043Z",
+                                      "message":  "ð State check #6...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:13.151Z",
+                                      "message":  "[BOT] [BROWSER] [MODAL] Re-clicked Join now with Computer audio",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:15.407Z",
+                                      "message":  "ð State check #7...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:15.603Z",
+                                      "message":  "[BOT] [BROWSER] [screenSharing][giveTakeControlService]: unknown control role for",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:16.354Z",
+                                      "message":  "[BOT] [BROWSER] [MODAL] Re-clicked Join now with Computer audio",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:18.380Z",
+                                      "message":  "ð State check #8...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:23.751Z",
+                                      "message":  "ð¸ Diagnostic screenshot: state-check-8.png",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:50.486Z",
+                                      "message":  "[BOT] [BROWSER] callingAgents: calling-stack [JS.TsCalling.SignalingAgent] ffffffff: CSA[f2301f7f-2fd1-41de-b167-9c6bf6ced103][Connected]/Broker _handleSubscriptionFailure failed, re-subscribing, {\"response\":16,\"status\":498,\"statusText\":\"RequestAborted\"}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:57.585Z",
+                                      "message":  "â\u0085 Meeting UI detected!",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:57.586Z",
+                                      "message":  "ð Final state after 8 checks: IN_MEETING",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:57.717Z",
+                                      "message":  "ð¢ Bot confirmed IN MEETING (call toolbar detected)",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:42:57.816Z",
+                                      "message":  "[BOT] [BROWSER] WebSocket connection to \u0027wss://apac.pptservicescast.officeapps.live.com/StateServiceHandler.ashx?docId=call_f2301f7f-2fd1-41de-b167-9c6bf6ced103\u0026clientType=Teams\u0026cid=ef8e5fea-3183-4735-97f1-1708466db3a9\u0026routing=true\u0026clientId=841b1771-2f48-4c6a-a97a-d3696878c3bf\u0027 failed: Error in connection establishment: net::ERR_NAME_NOT_RESOLVED",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:01.491Z",
+                                      "message":  "â\u0085 Virtual Ear already running (started via audio modal path)",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:01.492Z",
+                                      "message":  "â³ Bot active (Smart End Detection + Speaker Tracking enabled)...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:02.246Z",
+                                      "message":  "[BOT] [BROWSER] LiveStateBroadcastService: SimpleStateServiceProxy::connect - WebSocket onerror. {sessionId: call_f2301f7f-2fd1-41de-b167-9c6bf6ced103, ClientId: 841b1771-2f48-4c6a-a97a-d3696878c3bf, Error: {\"isTrusted\":true}}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:03.373Z",
+                                      "message":  "[BOT] [BROWSER] [SPEAKER] High-frequency speaker tracker started (2s interval)",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:03.375Z",
+                                      "message":  "[BOT] â\u0085 Speaker tracker injected into page",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:03.548Z",
+                                      "message":  "[BOT] [BROWSER] TaskManagerService: notify:: Task Execute Error - taskId CreateCoreSecurityTask, code=EXECUTION_FAILURE errorMsg={\"type\":\"TrustedTypeError\",\"code\":\"DUPLICATE_POLICY_FOUND\",\"stack\":\"DUPLICATE_POLICY_FOUND Error: undefined\\n    at o.configureCoreSecurityService (https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/64278-be053ea389719352.js:7:17037)\\n    at uX.execute (https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/light-meetings-experience-4917ec50034075b0.js:38:11592)\\n    at uX.executeSafe (https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/light-meetings-experience-4917ec50034075b0.js:23:64872)\\n    at u (https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/light-meetings-experience-4917ec50034075b0.js:132:40937)\\n    at m (https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/light-meetings-experience-4917ec50034075b0.js:132:41019)\\n    at RG.notifyLifeCycleEvent (https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/light-meetings-experience-4917ec50034075b0.js:132:41031)\\n    at async aj.createCoreServices (https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/light-meetings-experience-4917ec50034075b0.js:23:40257)\\n    at async aZ.initializeCoreServices (https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/light-meetings-experience-4917ec50034075b0.js:23:48712)\\n    at async aZ.init (https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/light-meetings-experience-4917ec50034075b0.js:23:47805)\\n    at async epE (https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/main-29b6b489322975bc.js:86:11531)\",\"prevError\":{\"name\":\"Error\",\"message\":\"ChunkLoader::coreSecurityService is already defined. Developer should not be calling configureCoreSecurityService multiple times in it\u0027s context\",\"stack\":[]}}.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:03.584Z",
+                                      "message":  "[BOT] [BROWSER] TaskManagerService: notify:: Task Execute Error - taskId InitTelemetryMonitorsTask, code=MISSING_DEPENDENCIES errorMsg=[\"leakDetectorService\"] are required, but not initialized..",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:03.662Z",
+                                      "message":  "[BOT] [BROWSER] CoreSettings/EcsParameters: osVersion parsed from deviceInfo is not a proper semver \u0027NT 10.0\u0027.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:05.906Z",
+                                      "message":  "[BOT] [BROWSER] TaskManagerService: Failed 2 core tasks: CreateCoreSecurityTask,InitTelemetryMonitorsTask, lifeCycleEvent=Initialization:  JSHandle@error",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:05.907Z",
+                                      "message":  "[BOT] [BROWSER] RenderingContextManager: [TaskError::CreateCoreSecurityTask::EXECUTION_FAILURE::undefined][TrustedTypeError::DUPLICATE_POLICY_FOUND][Error::ChunkLoader::coreSecurityService is already defined. Developer should not be calling configureCoreSecurityService multiple times in it\u0027s context]",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:05.907Z",
+                                      "message":  "[BOT] [BROWSER] RenderingContextManager: [TaskError::InitTelemetryMonitorsTask::MISSING_DEPENDENCIES::leakDetectorService]",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:05.953Z",
+                                      "message":  "[BOT] [BROWSER] CoreSettings/EcsParameters: osVersion parsed from deviceInfo is not a proper semver \u0027NT 10.0\u0027.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.445Z",
+                                      "message":  "[BOT] [BROWSER] [Auth]: authTelemetryProvider initialized",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.616Z",
+                                      "message":  "[BOT] [BROWSER] Failed to load resource: the server responded with a status of 401 ()",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.620Z",
+                                      "message":  "[BOT] [BROWSER] ErrorStateProvider: Reported error for scenario unhandled_rejection_error: UnhandledPromiseRejection",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.621Z",
+                                      "message":  "[BOT] [BROWSER] ErrorStateProvider: showOops: false, errors: [lineno:undefined;colno:undefined]",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.622Z",
+                                      "message":  "[BOT] [BROWSER] ErrorStateProvider: extractedError:",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.622Z",
+                                      "message":  "[BOT] [BROWSER] ErrorStateProvider: stack:",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.622Z",
+                                      "message":  "[BOT] [BROWSER] ErrorStateProvider: file source:",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.623Z",
+                                      "message":  "[BOT] [BROWSER] ErrorStateProvider: error code:  UnhandledPromiseRejection",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.625Z",
+                                      "message":  "[BOT] [BROWSER] CID[main] ErrorStateProvider: Reported error for scenario unhandled_rejection_error: UnhandledPromiseRejection",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.626Z",
+                                      "message":  "[BOT] [BROWSER] CID[main] ErrorStateProvider: showOops: false, errors: [lineno:undefined;colno:undefined]",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.626Z",
+                                      "message":  "[BOT] [BROWSER] CID[main] ErrorStateProvider: extractedError:",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.626Z",
+                                      "message":  "[BOT] [BROWSER] CID[main] ErrorStateProvider: stack:",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.627Z",
+                                      "message":  "[BOT] [BROWSER] CID[main] ErrorStateProvider: file source:",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.627Z",
+                                      "message":  "[BOT] [BROWSER] CID[main] ErrorStateProvider: error code:  UnhandledPromiseRejection",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.845Z",
+                                      "message":  "[BOT] [BROWSER] ThreadSliceManager: Charms load from store failed: getCharms failed with slice store is not initialized, code: NotPresent",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.845Z",
+                                      "message":  "[BOT] [BROWSER] MentionsSliceManager: Charms load from store failed: getCharms failed with slice store is not initialized, code: NotPresent",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.845Z",
+                                      "message":  "[BOT] [BROWSER] drafts-slice-manager: Charms load from store failed: getCharms failed with slice store is not initialized, code: NotPresent",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.846Z",
+                                      "message":  "[BOT] [BROWSER] group-mentions-slice-manager: Charms load from store failed: getCharms failed with slice store is not initialized, code: NotPresent",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.846Z",
+                                      "message":  "[BOT] [BROWSER] ThreadSliceManager: Error during startup: getTransientFlags failed with slice store is not initialized, code: NotPresent",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.847Z",
+                                      "message":  "[BOT] [BROWSER] MentionsSliceManager: Error during startup: getTransientFlags failed with slice store is not initialized, code: NotPresent",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.847Z",
+                                      "message":  "[BOT] [BROWSER] drafts-slice-manager: Error during startup: getTransientFlags failed with slice store is not initialized, code: NotPresent",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.848Z",
+                                      "message":  "[BOT] [BROWSER] group-mentions-slice-manager: Error during startup: getTransientFlags failed with slice store is not initialized, code: NotPresent",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:06.876Z",
+                                      "message":  "[BOT] [BROWSER] cdlwebworker: {errorCode:FailedToUpdate,component:ConversationFolderManager,message:setFolderTableVersion failed with Store is not initialized,hostRendererId:cdlwebworker}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:07.272Z",
+                                      "message":  "[BOT] [BROWSER] Failed to load resource: the server responded with a status of 401 ()",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:07.276Z",
+                                      "message":  "[BOT] [BROWSER] CID[Core-31ab3bf0-d403-4213-bd91-4bbf981e3a95] AtpSafelinksService: AtpSafelinks GetPolicy API failed with Error: RequireStatusFailed",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:07.276Z",
+                                      "message":  "[BOT] [BROWSER] CID[Core-31ab3bf0-d403-4213-bd91-4bbf981e3a95] AtpSafelinksService: Error getting ATP Safelinks policy: failed to retreive from local storage and service and received null",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:07.815Z",
+                                      "message":  "[BOT] [BROWSER] i18n: failed to import ./generated/resources/en-us/live-persona-card JSHandle@error",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:07.816Z",
+                                      "message":  "[BOT] [BROWSER] i18n: failed to import ./generated/resources/en-us/presence JSHandle@error",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:08.425Z",
+                                      "message":  "[BOT] [BROWSER] i18n: failed to import ./generated/resources/en-us/semantic-object JSHandle@error",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:08.781Z",
+                                      "message":  "[BOT] [BROWSER] CallTitleService: callTitleService: getDefaultCallTitle failed",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:08.906Z",
+                                      "message":  "[BOT] [BROWSER] Trouter: {errorCode:TrouterClient,component:Trouter,message:[Trouter] Another listener is already registered for path \u0027/messaging\u0027,hostRendererId:cdlWorker}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:08.907Z",
+                                      "message":  "[BOT] [BROWSER] Trouter: {errorCode:TrouterClient,component:Trouter,message:[Trouter] Another listener is already registered for path \u0027/auth\u0027,hostRendererId:cdlWorker}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:08.908Z",
+                                      "message":  "[BOT] [BROWSER] Trouter: {errorCode:TrouterClient,component:Trouter,message:[Trouter] Another listener is already registered for path \u0027/unifiedPresenceService\u0027,hostRendererId:cdlWorker}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:08.908Z",
+                                      "message":  "[BOT] [BROWSER] Trouter: {errorCode:TrouterClient,component:Trouter,message:[Trouter] Another listener is already registered for path \u0027/audienceEvents\u0027,hostRendererId:cdlWorker}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:08.909Z",
+                                      "message":  "[BOT] [BROWSER] Trouter: {errorCode:TrouterClient,component:Trouter,message:[Trouter] Another listener is already registered for path \u0027/b/audienceEvents\u0027,hostRendererId:cdlWorker}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:09.042Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsComposeMessagePresenceBatchSubscription\"",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:09.043Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsComposeMessagePresenceBatchSubscription\" - {\"message\":\"Unexpected error value: \\\"The subscription field \\\\\\\"presenceUpdateEventBatch\\\\\\\" is not defined.\\\"\",\"locations\":[]}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:09.052Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsChannelQueriesChannelByIdQuery\", at field selection path \"channelByID\"",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:09.052Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsChannelQueriesChannelByIdQuery\", at field selection path \"channelByID\" - {\"message\":\"Cannot return null for non-nullable field Query.channelByID.\",\"locations\":[],\"path\":[\"channelByID\"]}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:09.053Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsPinnedMessageChatPinnedMessageEventsSubscription\", at field selection path \"chatPinnedMessageEvents\"",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:09.055Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsPinnedMessageChatPinnedMessageEventsSubscription\", at field selection path \"chatPinnedMessageEvents\" - {\"message\":\"Unexpected error value: \\\"Subscription field must return Async Iterable. Received: undefined.\\\"\",\"locations\":[],\"path\":[\"chatPinnedMessageEvents\"]}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:19.599Z",
+                                      "message":  "[BOT] [BROWSER] callingAgents: calling-stack [JS.TsCalling.MediaAgent] ffffffff: MA/webrtc2-2/negotiation [33a7dab1] cannot rollback local description in current state: stable",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:19.599Z",
+                                      "message":  "[BOT] [BROWSER] callingAgents: calling-stack [JS.TsCalling.MediaAgent] ffffffff: MA/webrtc2-2/negotiation [33a7dab1] Error from promiseQueue! negotiation rejected",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:19.642Z",
+                                      "message":  "[BOT] [BROWSER] callingAgents: calling-stack [JS.TsCalling.MediaAgent] ffffffff: MA/webrtc2-2/negotiation [70712138] cannot rollback local description in current state: stable",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:19.643Z",
+                                      "message":  "[BOT] [BROWSER] callingAgents: calling-stack [JS.TsCalling.MediaAgent] ffffffff: MA/webrtc2-2/negotiation [70712138] Error from promiseQueue! negotiation rejected",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:19.681Z",
+                                      "message":  "[BOT] [BROWSER] callingAgents: calling-stack [JS.TsCalling.MediaAgent] ffffffff: MA/webrtc2-2/negotiation [78f98e41] cannot rollback local description in current state: stable",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:19.682Z",
+                                      "message":  "[BOT] [BROWSER] callingAgents: calling-stack [JS.TsCalling.MediaAgent] ffffffff: MA/webrtc2-2/negotiation [78f98e41] Error from promiseQueue! negotiation rejected",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:33.413Z",
+                                      "message":  "[BOT] ð¤ Updating transcript (23KB recorded)...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:33.417Z",
+                                      "message":  "[STT Service] Mode: CLOUD | Local URL: http://localhost:4545",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:33.417Z",
+                                      "message":  "[STT Service] âï¸ Cloud transcription via Groq...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:34.380Z",
+                                      "message":  "â\u0085 Cloud transcription successful via groq",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:34.380Z",
+                                      "message":  "[BOT] ð New Text Found (4 segments)",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:43:34.383Z",
+                                      "message":  "â¨ Transcription sync successful (4 lines)",
+                                      "type":  "stt"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:07.164Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsPhonelinkSmsErrorCodeHookSubscription\"",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:07.165Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsPhonelinkSmsErrorCodeHookSubscription\" - {\"message\":\"Unexpected error value: \\\"The subscription field \\\\\\\"phonelinkErrorCodeUpdate\\\\\\\" is not defined.\\\"\",\"locations\":[]}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:07.336Z",
+                                      "message":  "[BOT] [BROWSER] CID[Core-31ab3bf0-d403-4213-bd91-4bbf981e3a95] FilesValidDomainsService: files-valid-domains-service: isValidCache failed: Unexpected end of JSON input",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:07.414Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsComposeMessageSlashCommandCallByThreadIdQuery\", at field selection path \"callByThreadId\"",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:07.415Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsComposeMessageSlashCommandCallByThreadIdQuery\", at field selection path \"callByThreadId\" - {\"message\":\"Msteams calling integration is not enabled\",\"locations\":[],\"path\":[\"callByThreadId\"]}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:07.415Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsComposeMessageSlashCommandCallByThreadIdQuery\", at field selection path \"callByThreadId\"",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:07.415Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsComposeMessageSlashCommandCallByThreadIdQuery\", at field selection path \"callByThreadId\" - {\"message\":\"Msteams calling integration is not enabled\",\"locations\":[],\"path\":[\"callByThreadId\"]}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:07.422Z",
+                                      "message":  "[BOT] [BROWSER] CID[Core-31ab3bf0-d403-4213-bd91-4bbf981e3a95] FilesValidDomainsService: FilesValidDomainsService: getValidDomains failed with error: Cannot read properties of undefined (reading \u0027map\u0027)",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:07.422Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsFilesCommonValidFileDomainsQuery\", at field selection path \"filesValidDomains\"",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:07.425Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsFilesCommonValidFileDomainsQuery\", at field selection path \"filesValidDomains\" - {\"message\":\"FilesValidDomainsService::getValidDomains::UnhandledRuntimeException\",\"locations\":[],\"path\":[\"filesValidDomains\"]}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:07.428Z",
+                                      "message":  "[BOT] [BROWSER] CID[main] useGetValidFileDomains: Exception while executing validFileDomainsQuery: Error: FilesValidDomainsService::getValidDomains::UnhandledRuntimeException",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:10.423Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:17.032Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsTypingIndicatorTypingUsersSubscription\", at field selection path \"typingUsersEvent\"",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:17.033Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsTypingIndicatorTypingUsersSubscription\", at field selection path \"typingUsersEvent\" - {\"message\":\"Unexpected error value: \\\"Subscription field must return Async Iterable. Received: undefined.\\\"\",\"locations\":[],\"path\":[\"typingUsersEvent\"]}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:17.033Z",
+                                      "message":  "[BOT] [BROWSER] CID[Core-31ab3bf0-d403-4213-bd91-4bbf981e3a95] FilesValidDomainsService: files-valid-domains-service: isValidCache failed: Unexpected end of JSON input",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:17.052Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsComposeMessageMobileAttachUpdatesSubscription\", at field selection path \"subscribeToCrossDeviceAttachType\"",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:17.053Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsComposeMessageMobileAttachUpdatesSubscription\", at field selection path \"subscribeToCrossDeviceAttachType\" - {\"message\":\"Cannot read properties of undefined (reading \u0027logger\u0027)\",\"locations\":[],\"path\":[\"subscribeToCrossDeviceAttachType\"]}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:17.284Z",
+                                      "message":  "[BOT] [BROWSER] CID[Core-31ab3bf0-d403-4213-bd91-4bbf981e3a95] FilesValidDomainsService: FilesValidDomainsService: getValidDomains failed with error: Cannot read properties of undefined (reading \u0027map\u0027)",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:17.285Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsFilesCommonValidFileDomainsQuery\", at field selection path \"filesValidDomains\"",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:17.285Z",
+                                      "message":  "[BOT] [BROWSER] resolverUncaughtErrorBoundary__doNotAssignToGraphQLTeam: Uncaught error in a GraphQL resolver for operation \"ComponentsFilesCommonValidFileDomainsQuery\", at field selection path \"filesValidDomains\" - {\"message\":\"FilesValidDomainsService::getValidDomains::UnhandledRuntimeException\",\"locations\":[],\"path\":[\"filesValidDomains\"]}",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:17.287Z",
+                                      "message":  "[BOT] [BROWSER] CID[main] useGetValidFileDomains: Exception while executing validFileDomainsQuery: Error: FilesValidDomainsService::getValidDomains::UnhandledRuntimeException",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:20.283Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:28.741Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:44:49.079Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:45:03.412Z",
+                                      "message":  "[BOT] ð¤ Updating transcript (44KB recorded)...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:45:03.412Z",
+                                      "message":  "[STT Service] âï¸ Cloud transcription via Groq...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:45:04.150Z",
+                                      "message":  "â\u0085 Cloud transcription successful via groq",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:45:04.150Z",
+                                      "message":  "[BOT] ð New Text Found (7 segments)",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:45:04.151Z",
+                                      "message":  "â¨ Transcription sync successful (7 lines)",
+                                      "type":  "stt"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:45:09.395Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:45:28.116Z",
+                                      "message":  "[BOT] ð¤ Audio Chunk Saved (50KB total)",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:45:29.730Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:45:50.067Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:46:10.390Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:46:30.716Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:46:33.434Z",
+                                      "message":  "[BOT] ð¤ Updating transcript (66KB recorded)...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:46:33.435Z",
+                                      "message":  "[STT Service] âï¸ Cloud transcription via Groq...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:46:34.253Z",
+                                      "message":  "â\u0085 Cloud transcription successful via groq",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:46:34.254Z",
+                                      "message":  "[BOT] ð New Text Found (12 segments)",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:46:34.255Z",
+                                      "message":  "â¨ Transcription sync successful (12 lines)",
+                                      "type":  "stt"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:46:51.055Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:47:11.375Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:47:31.696Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:47:52.017Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:48:03.471Z",
+                                      "message":  "[BOT] ð¤ Updating transcript (87KB recorded)...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:48:03.472Z",
+                                      "message":  "[STT Service] âï¸ Cloud transcription via Groq...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:48:04.855Z",
+                                      "message":  "â\u0085 Cloud transcription successful via groq",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:48:04.856Z",
+                                      "message":  "[BOT] ð New Text Found (15 segments)",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:48:04.857Z",
+                                      "message":  "â¨ Transcription sync successful (15 lines)",
+                                      "type":  "stt"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:48:12.338Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:48:32.703Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:48:53.028Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:48:58.236Z",
+                                      "message":  "[BOT] ð¤ Audio Chunk Saved (100KB total)",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:49:13.363Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:49:33.503Z",
+                                      "message":  "[BOT] ð¤ Updating transcript (108KB recorded)...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:49:33.504Z",
+                                      "message":  "[STT Service] âï¸ Cloud transcription via Groq...",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:49:33.696Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:49:35.128Z",
+                                      "message":  "â\u0085 Cloud transcription successful via groq",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:49:35.129Z",
+                                      "message":  "[BOT] ð New Text Found (16 segments)",
+                                      "type":  "info"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:49:35.131Z",
+                                      "message":  "â¨ Transcription sync successful (16 lines)",
+                                      "type":  "stt"
+                                  },
+                                  {
+                                      "timestamp":  "2026-02-18T02:49:54.071Z",
+                                      "message":  "[BOT] [BROWSER] The resource https://statics.teams.cdn.office.net/teams-modular-packages/hashed-assets/calling-cdl-calling-package-loader-e9d7a0513ee001d8.js was preloaded using link preload but not used within a few seconds from the window\u0027s load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.",
+                                      "type":  "info"
+                                  }
+                              ],
+                     "speakerEvents":  [
+
+                                       ],
+                     "startTime":  "2026-02-18T02:40:47.101Z",
+                     "lastHeartbeat":  1771383003514,
+                     "flags":  {
+                                   "mediaConfirmed":  true,
+                                   "recordingStarted":  true
+                               },
+                     "recordingStartTime":  1771382514287,
+                     "vttContent":  "WEBVTT\n\nbot-segment/0\n00:00:00.000 --\u003e 00:00:00.620\n\u003cv Meeting Participant\u003eyou\u003c/v\u003e\n\nbot-segment/1\n00:00:30.000 --\u003e 00:00:30.620\n\u003cv Meeting Participant\u003eyou\u003c/v\u003e\n\nbot-segment/2\n00:01:00.000 --\u003e 00:01:00.619\n\u003cv Meeting Participant\u003eyou\u003c/v\u003e\n\nbot-segment/3\n00:01:30.000 --\u003e 00:01:30.620\n\u003cv Meeting Participant\u003eyou\u003c/v\u003e\n\nbot-segment/4\n00:01:49.495 --\u003e 00:01:50.115\n\u003cv Meeting Participant\u003eyou\u003c/v\u003e\n\nbot-segment/5\n00:02:19.495 --\u003e 00:02:20.115\n\u003cv Meeting Participant\u003eyou\u003c/v\u003e\n\nbot-segment/6\n00:02:49.495 --\u003e 00:02:50.115\n\u003cv Meeting Participant\u003eyou\u003c/v\u003e\n\nbot-segment/7\n00:03:19.495 --\u003e 00:03:20.115\n\u003cv Meeting Participant\u003eyou\u003c/v\u003e\n\nbot-segment/8\n00:03:49.495 --\u003e 00:03:44.610\n\u003cv Meeting Participant\u003eyou you\u003c/v\u003e\n\nbot-segment/9\n00:04:13.990 --\u003e 00:04:14.610\n\u003cv Meeting Participant\u003eyou\u003c/v\u003e\n\nbot-segment/10\n00:04:43.990 --\u003e 00:04:44.610\n\u003cv Meeting Participant\u003eyou\u003c/v\u003e\n\nbot-segment/11\n00:05:13.990 --\u003e 00:05:14.610\n\u003cv Meeting Participant\u003eyou\u003c/v\u003e\n\nbot-segment/12\n00:05:43.990 --\u003e 00:05:39.104\n\u003cv Meeting Participant\u003eyou you\u003c/v\u003e\n\nbot-segment/13\n00:06:08.485 --\u003e 00:06:09.104\n\u003cv Meeting Participant\u003eyou\u003c/v\u003e\n\nbot-segment/14\n00:06:38.485 --\u003e 00:06:39.104\n\u003cv Meeting Participant\u003eyou\u003c/v\u003e\n\nbot-segment/15\n00:07:08.485 --\u003e 00:07:09.104\n\u003cv Meeting Participant\u003eyou\u003c/v\u003e\n",
+                     "currentSpeaker":  null
+                 }
+             ]
+}

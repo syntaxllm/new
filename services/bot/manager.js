@@ -133,7 +133,8 @@ class BotManager extends EventEmitter {
 
             const child = spawn('node', args, {
                 stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-                detached: false
+                detached: false,
+                windowsHide: false // Show for debugging as requested
             });
 
             botSession.process = child;
@@ -406,7 +407,8 @@ class BotManager extends EventEmitter {
             await new Promise(r => setTimeout(r, 5000));
 
             // We use the internal URL or localhost
-            const baseUrl = 'http://localhost:3000';
+            const port = process.env.PORT || 5656;
+            const baseUrl = `http://localhost:${port}`;
 
             console.log(`[BotManager] Triggering AI Summary for ${meetingId}`);
             const summaryRes = await fetch(`${baseUrl}/api/summary/${meetingId}`);

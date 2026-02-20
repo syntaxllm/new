@@ -226,27 +226,32 @@ const pid = process.pid;
             log('⚠️ Pre-Join UI loading slowly, checking for "Allow" modals...');
 
             // MODAL BUSTER: Click past the "Allow" overlay if it exists
-            await page.evaluate(() => {
-                const buttons = Array.from(document.querySelectorAll('button'));
-                const modalBtn = buttons.find(b => {
-                    const txt = b.innerText.toLowerCase();
-                    return txt.includes('allow') ||
-                        txt.includes('dismiss') ||
-                        txt.includes('got it') ||
-                        txt.includes('ok') ||
-                        txt.includes('continue without audio or video');
-                });
+            // MODAL BUSTER: Click past the "Allow" overlay if it exists
+            try {
+                await page.evaluate(() => {
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    const modalBtn = buttons.find(b => {
+                        const txt = (b.innerText || '').toLowerCase();
+                        return txt.includes('allow') ||
+                            txt.includes('dismiss') ||
+                            txt.includes('got it') ||
+                            txt.includes('ok') ||
+                            txt.includes('continue without audio or video');
+                    });
 
-                if (modalBtn) {
-                    modalBtn.click();
-                } else if (document.body.innerText.includes('Select Allow')) {
-                    // Force click center of screen to dismiss informational overlays
-                    const x = window.innerWidth / 2;
-                    const y = window.innerHeight / 2;
-                    const el = document.elementFromPoint(x, y);
-                    if (el) el.click();
-                }
-            });
+                    if (modalBtn) {
+                        modalBtn.click();
+                    } else if (document.body.innerText.includes('Select Allow')) {
+                        // Force click center of screen to dismiss informational overlays
+                        const x = window.innerWidth / 2;
+                        const y = window.innerHeight / 2;
+                        const el = document.elementFromPoint(x, y);
+                        if (el) el.click();
+                    }
+                });
+            } catch (navErr) {
+                console.log('⚠️ Ignored navigation error during modal check:', navErr.message);
+            }
             await new Promise(r => setTimeout(r, 2000));
 
             // Re-check for Join Screen after potential modal clearance

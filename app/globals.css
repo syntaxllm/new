@@ -13,33 +13,95 @@
 }
 
 .dark {
-  --color-bg: #1f1f1f;
-  --color-surface: #2d2d2d;
-  --color-primary: #6264a7;
-  --color-secondary: #8a8cd9;
-  --color-border: #4b4b4b;
+  --color-bg: #0f1115;
+  --color-surface: #1a1c22;
+  --color-primary: #7c7ecb;
+  --color-secondary: #a3a5e9;
+  --color-border: #2a2d36;
   --color-text-primary: #ffffff;
-  --color-text-secondary: #d1d1d1;
+  --color-text-secondary: #9ea4b0;
 }
 
 body {
   @apply bg-teams-bg text-teams-text-primary;
-  font-family: 'Segoe UI', 'Segoe UI Web (West European)', -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue', sans-serif;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass {
+  @apply bg-opacity-70 backdrop-blur-md border border-white/10;
+}
+
+.glass-dark {
+  @apply bg-black/40 backdrop-blur-xl border border-white/5;
+}
+
+.premium-gradient {
+  background: linear-gradient(135deg, #6264a7 0%, #8a8cd9 100%);
+}
+
+.premium-gradient-animate {
+  background: linear-gradient(-45deg, #6264a7, #a3a5e9, #464775, #6264a7);
+  background-size: 400% 400%;
+  animation: gradient 15s ease infinite;
+}
+
+@keyframes gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.card-hover {
+  @apply transition-all duration-300 hover:translate-y-[-2px] hover:shadow-xl hover:border-teams-primary;
 }
 
 /* Custom scrollbar for a more integrated look */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
+
 ::-webkit-scrollbar-track {
-  background: var(--color-surface);
+  background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: var(--color-border);
-  border-radius: 4px;
+  border-radius: 10px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-secondary);
+  background: var(--color-primary);
+}
+
+/* Neon Pulse for live indicators */
+.pulse-neon {
+  box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.7);
+  animation: pulse-neon 2s infinite;
+}
+
+@keyframes pulse-neon {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.7);
+  }
+
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 10px rgba(74, 222, 128, 0);
+  }
+
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0);
+  }
 }

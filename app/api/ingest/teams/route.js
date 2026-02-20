@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ingestTeamsMeeting } from '../../../../lib/backend-adapter.js';
+import { getUserIdFromRequest } from '../../../../lib/auth.js';
+
 /**
  * POST /api/ingest/teams
  * Body: { accessToken: string, teamsMeetingId: string }
@@ -8,6 +10,7 @@ export async function POST(request) {
     try {
         const body = await request.json();
         const { teamsMeetingId, meetingData } = body;
+        const userId = getUserIdFromRequest(request);
 
         console.log('[Ingest API] Request body:', JSON.stringify({ teamsMeetingId, meetingData }, null, 2));
 
@@ -22,7 +25,11 @@ export async function POST(request) {
         // Trigger real-world ingestion from MS Graph to MongoDB
         // Pass resourcePath AND full meetingData for VTT access
         console.log('[Ingest API] Calling ingestTeamsMeeting with resourcePath:', meetingData?.resourcePath);
-        const meeting = await ingestTeamsMeeting(accessToken, teamsMeetingId, meetingData?.resourcePath, meetingData);
+
+        // Inject userId into meetingData
+        const enrichedMeetingData = { ...(meetingData || {}), userId };
+
+        const meeting = await ingestTeamsMeeting(accessToken, teamsMeetingId, meetingData?.resourcePath, enrichedMeetingData);
 
         return NextResponse.json({
             success: true,

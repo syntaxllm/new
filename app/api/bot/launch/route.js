@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { botManager } from '../../../../services/bot/manager'; // Adjusted path: 4 levels up to root
+import { getUserIdFromRequest } from '../../../../lib/auth';
 
 // IMPORTANT: Next.js API routes are serverless/lambdas by default in Vercel, 
 // but in a custom server or dev mode, singletons might persist. 
@@ -15,6 +16,11 @@ if (!manager) {
 export async function POST(req) {
     try {
         const { joinUrl, meetingId, subject } = await req.json();
+        const userId = getUserIdFromRequest(req);
+
+        if (!userId) {
+            return NextResponse.json({ error: 'Unauthorized. Please login.' }, { status: 401 });
+        }
 
         if (!joinUrl) {
             return NextResponse.json({ error: 'Missing joinUrl' }, { status: 400 });
@@ -29,10 +35,10 @@ export async function POST(req) {
             }, { status: 400 });
         }
 
-        console.log(`[API] Requesting Bot Launch for Meeting: ${meetingId || 'Manual Link'}`);
+        console.log(`[API] Requesting Bot Launch for Meeting: ${meetingId || 'Manual Link'} (User: ${userId || 'Anonymous'})`);
 
         // Use the Manager to launch with metadata
-        const session = manager.launchBot(joinUrl, { meetingId, subject });
+        const session = manager.launchBot(joinUrl, { meetingId, subject, userId });
 
         return NextResponse.json({
             success: true,
