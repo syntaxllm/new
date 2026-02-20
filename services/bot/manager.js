@@ -118,7 +118,9 @@ class BotManager extends EventEmitter {
             flags: {
                 mediaConfirmed: false,
                 recordingStarted: false
-            }
+            },
+            vttContent: '', // Initialize empty VTT
+            transcriptSegments: [] // Store raw segments here
         };
 
         this.bots.set(id, botSession);
@@ -224,11 +226,17 @@ class BotManager extends EventEmitter {
     getAllBots() {
         // Return array of bots without the process object to avoid circular JSON issues
         return Array.from(this.bots.values()).map(b => {
-            const { process, ...safeBot } = b;
+            const { process, logs, ...safeBot } = b; // Exclude process and potentially huge logs if needed
+
             // Add current speaker for UI feedback
             safeBot.currentSpeaker = b.speakerEvents?.length > 0
                 ? b.speakerEvents[b.speakerEvents.length - 1].name
                 : null;
+
+            // Explicitly ensure VTT and Segments are passed
+            safeBot.vttContent = b.vttContent;
+            safeBot.transcriptSegments = b.transcriptSegments;
+
             return safeBot;
         });
     }
@@ -298,7 +306,10 @@ class BotManager extends EventEmitter {
             session.lastHeartbeat = Date.now();
         } else if (msg.type === 'transcript') {
             const result = msg.payload; // This is now the full result object
-            console.log(`[BotManager] Received transcript update for ${session.metadata?.meetingId || id} (${result.segments?.length || 0} segments)`);
+            // console.log(`[BotManager] Received transcript update for ${session.metadata?.meetingId || id} (${result.segments?.length || 0} segments)`);
+
+            // Store raw segments for direct JSON access if needed
+            session.transcriptSegments = result.segments || [];
 
             // 1. Generate professional VTT content from segments
             const vttContent = this.generateVTT(result.segments || [], session.metadata?.subject);

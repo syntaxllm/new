@@ -123,16 +123,21 @@ const LiveTranscript = ({ vttContent }) => {
         endRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [vttContent]);
 
-    if (!vttContent) return <div className="text-gray-500 italic p-4 text-center">Waiting for speech...</div>;
+    // Check if vttContent is actually a JSON array (from DB or Live Bot)
+    if (!vttContent || (Array.isArray(vttContent) && vttContent.length === 0)) {
+        return <div className="text-gray-500 italic p-4 text-center">Waiting for speech...</div>;
+    }
 
     const segments = [];
 
-    // Check if vttContent is actually a JSON array (from DB)
+    // If we have explicit segments passed via props (could be named differently in parent)
+    // In this case, vttContent might BE the array if passed from selectedBot.transcriptSegments
+
     if (Array.isArray(vttContent)) {
         vttContent.forEach(item => {
             segments.push({
-                time: `${new Date(item.start_time * 1000).toISOString().substr(11, 8)}`,
-                speaker: item.speaker_id || 'Unknown',
+                time: item.start_time ? `${new Date(item.start_time * 1000).toISOString().substr(11, 8)}` : (item.time || '00:00:00'),
+                speaker: item.speaker_id || item.speaker || 'Unknown',
                 text: item.text
             });
         });
@@ -834,7 +839,7 @@ export default function MeetingAI() {
                                                 </button>
                                             )}
                                         </div>
-                                        <LiveTranscript vttContent={selectedBot ? selectedBot.vttContent : meetingContent} />
+                                        <LiveTranscript vttContent={selectedBot ? (selectedBot.transcriptSegments || []) : meetingContent} />
                                     </div>
                                 )}
 

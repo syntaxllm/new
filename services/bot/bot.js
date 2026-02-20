@@ -114,13 +114,7 @@ const pid = process.pid;
     await page.exposeFunction('sendAudioChunk', (chunkBase64) => {
         const buffer = Buffer.from(chunkBase64, 'base64');
 
-        // Save first chunk as header if not already set
-        if (!audioHeader) {
-            audioHeader = buffer;
-            log('🎵 Captured audio stream header');
-        } else {
-            activeChunks.push(buffer); // Enabled for Live STT
-        }
+        activeChunks.push(buffer); // Since each chunk is now a full file, just push it
 
         audioStream.write(buffer);
         totalBytesReceived += buffer.length;
@@ -133,18 +127,25 @@ const pid = process.pid;
 
     // --- INCREMENTAL TRANSCRIPTION LOOP ---
     setInterval(async () => {
-        if (activeChunks.length === 0 || !audioHeader) return;
+        if (activeChunks.length === 0) return;
 
         chunkBatchCount++;
         const currentBatchSize = activeChunks.length;
         log(`📤 [Batch #${chunkBatchCount}] Sending ${currentBatchSize} chunks to STT Engine...`);
 
-        // 1. Create a playable chunk (Header + New Data)
-        const batchBuffer = Buffer.concat([audioHeader, ...activeChunks]);
-        const chunkPath = path.resolve(RECORDINGS_DIR, `live_chunk_${MEETING_ID}_${Date.now()}.webm`);
+        // 1. Take the latest full chunk
+        const batchBuffer = activeChunks[activeChunks.length - 1];
 
-        // Clear buffer immediately to avoid overlap/duplication
+        // Clear buffer immediately
         activeChunks = [];
+
+        // Check for minimum viable size (e.g., ~1KB) to avoid processing tiny/noise chunks
+        if (batchBuffer.length < 1000) {
+            log(`ℹ️ [Batch #${chunkBatchCount}] Skipped (Small buffer: ${batchBuffer.length} bytes)`);
+            return;
+        }
+
+        const chunkPath = path.resolve(RECORDINGS_DIR, `live_chunk_${MEETING_ID}_${Date.now()}.webm`);
 
         try {
             fs.writeFileSync(chunkPath, batchBuffer);
@@ -168,8 +169,10 @@ const pid = process.pid;
                     // 3. Shift timestamps and append
                     const shifted = result.transcript.map(s => ({
                         ...s,
-                        start: s.start_time + globalOffset,
-                        end: s.end_time + globalOffset
+                        start_time: s.start_time + globalOffset, // Update for UI (JSON)
+                        end_time: s.end_time + globalOffset,     // Update for UI (JSON)
+                        start: s.start_time + globalOffset,      // Update for Manager (VTT)
+                        end: s.end_time + globalOffset           // Update for Manager (VTT)
                     }));
 
                     fullSegments.push(...shifted);
@@ -618,166 +621,229 @@ const pid = process.pid;
         recordingAnchorTime = sessionRecordingStartTime;
         sendIPC('recording-start', { timestamp: sessionRecordingStartTime });
 
-        await page.evaluate(async () => {
-            console.log('[EAR] Initializing Virtual Ear (Aggressive Mode)...');
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const mixer = ctx.createGain();
-            const dest = ctx.createMediaStreamDestination();
-            mixer.connect(dest);
+        try {
+            await page.evaluate(async () => {
+                if (window.__earInitialized) {
+                    console.log('[EAR] Already initialized. Resuming context if needed...');
+                    if (window.__earAudioContext && window.__earAudioContext.state === 'suspended') {
+                        window.__earAudioContext.resume();
+                    }
+                    return;
+                }
+                window.__earInitialized = true;
 
-            window.__earAudioContext = ctx;
-            window.__earMixer = mixer;
+                console.log('[EAR] Initializing Virtual Ear (Aggressive Mode)...');
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const mixer = ctx.createGain();
+                const dest = ctx.createMediaStreamDestination();
+                mixer.connect(dest);
 
-            const analyser = ctx.createAnalyser();
-            mixer.connect(analyser);
-            analyser.fftSize = 256;
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                window.__earAudioContext = ctx;
+                window.__earMixer = mixer;
 
-            // Intercept ALL media play events - REMOVED (WebRTC Intercept Strategy)
-            // const originalPlay = HTMLMediaElement.prototype.play;
-            // HTMLMediaElement.prototype.play = function () {
-            //     this.muted = false;
-            //     this.volume = 1.0;
-            //     return originalPlay.apply(this, arguments);
-            // };
+                // Ensure AudioContext is running (headless fix)
+                if (ctx.state === 'suspended') {
+                    await ctx.resume();
+                    console.log('[EAR] Resumed AudioContext from suspended state.');
+                }
 
-            const captureAudio = () => {
-                // HEADLESS FIX: Consume intercepted WebRTC tracks
-                // 1. Force a scan of known PCs to catch missed tracks
-                if (window.__scanRemoteTracks) window.__scanRemoteTracks();
+                const analyser = ctx.createAnalyser();
+                mixer.connect(analyser);
+                analyser.fftSize = 256;
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-                const tracks = window.__remoteAudioTracks || [];
-                let found = 0;
+                // Intercept ALL media play events - REMOVED (WebRTC Intercept Strategy)
+                // const originalPlay = HTMLMediaElement.prototype.play;
+                // HTMLMediaElement.prototype.play = function () {
+                //     this.muted = false;
+                //     this.volume = 1.0;
+                //     return originalPlay.apply(this, arguments);
+                // };
 
-                tracks.forEach(track => {
-                    if (track.kind === 'audio' && !track.dataset_captured) {
-                        try {
-                            track.dataset_captured = true;
-                            // Create a stream from the track
-                            const stream = new MediaStream([track]);
+                const captureAudio = () => {
+                    // HEADLESS FIX: Consume intercepted WebRTC tracks
+                    // 1. Force a scan of known PCs to catch missed tracks
+                    if (window.__scanRemoteTracks) window.__scanRemoteTracks();
 
-                            // Debug: Log track status
-                            console.log(`[EAR] 🎯 Processing WebRTC Track: ${track.id} (ReadyState: ${track.readyState})`);
+                    const tracks = window.__remoteAudioTracks || [];
+                    let found = 0;
 
-                            // Monitor track mute/unmute
-                            track.onmute = () => console.log(`[EAR] 🔇 Track ${track.id} MUTED`);
-                            track.onunmute = () => console.log(`[EAR] 🔊 Track ${track.id} UNMUTED`);
+                    tracks.forEach(track => {
+                        if (track.kind === 'audio' && !track.dataset_captured) {
+                            try {
+                                track.dataset_captured = true;
+                                // Create a stream from the track
+                                const stream = new MediaStream([track]);
 
-                            const source = ctx.createMediaStreamSource(stream);
-                            source.connect(mixer);
+                                // Debug: Log track status
+                                console.log(`[EAR] 🎯 Processing WebRTC Track: ${track.id} (ReadyState: ${track.readyState})`);
 
-                            // Debug: Analyser for this specific track
-                            const trackAnalyser = ctx.createAnalyser();
-                            trackAnalyser.fftSize = 256;
-                            source.connect(trackAnalyser);
-                            const trackData = new Uint8Array(trackAnalyser.frequencyBinCount);
+                                // Monitor track mute/unmute
+                                track.onmute = () => console.log(`[EAR] 🔇 Track ${track.id} MUTED`);
+                                track.onunmute = () => console.log(`[EAR] 🔊 Track ${track.id} UNMUTED`);
 
-                            // Poll this track for signal (briefly)
-                            setTimeout(() => {
-                                trackAnalyser.getByteFrequencyData(trackData);
-                                const sum = trackData.reduce((a, b) => a + b, 0);
-                                const avg = sum / trackData.length;
-                                console.log(`[EAR] 📊 Track ${track.id} Initial Signal Avg: ${avg.toFixed(2)}`);
-                            }, 2000);
+                                const source = ctx.createMediaStreamSource(stream);
+                                source.connect(mixer);
 
-                            found++;
-                            console.log(`[EAR] ✅ Hooked WebRTC Audio Track: ${track.id}`);
-                        } catch (err) {
-                            console.warn(`[EAR] Hook failed for track ${track.id}:`, err.message);
+                                // Debug: Analyser for this specific track
+                                const trackAnalyser = ctx.createAnalyser();
+                                trackAnalyser.fftSize = 256;
+                                source.connect(trackAnalyser);
+                                const trackData = new Uint8Array(trackAnalyser.frequencyBinCount);
+
+                                // Poll this track for signal (briefly)
+                                setTimeout(() => {
+                                    trackAnalyser.getByteFrequencyData(trackData);
+                                    const sum = trackData.reduce((a, b) => a + b, 0);
+                                    const avg = sum / trackData.length;
+                                    console.log(`[EAR] 📊 Track ${track.id} Initial Signal Avg: ${avg.toFixed(2)}`);
+                                }, 2000);
+
+                                found++;
+                                console.log(`[EAR] ✅ Hooked WebRTC Audio Track: ${track.id}`);
+                            } catch (err) {
+                                console.warn(`[EAR] Hook failed for track ${track.id}:`, err.message);
+                            }
+                        }
+                    });
+
+                    if (found > 0) console.log(`[EAR] Synced ${found} new remote audio tracks.`);
+                };
+
+                let silenceCount = 0;
+                setInterval(() => {
+                    analyser.getByteFrequencyData(dataArray);
+                    let sum = 0;
+                    for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+                    const avg = sum / dataArray.length;
+
+                    if (avg > 0.5) { // Lower threshold slightly
+                        silenceCount = 0;
+                        if (Math.random() > 0.95) console.log(`[EAR] 🎵 Mixer Signal: Vol=${Math.round(avg)}`);
+                    } else {
+                        silenceCount++;
+                        if (silenceCount % 12 === 0) {
+                            console.log('[EAR] 🔇 WARNING: Absolute silence in mixer (headless behavior?)');
+                            if (ctx.state === 'suspended') ctx.resume();
+                            // Trigger re-scan of tracks
+                            captureAudio();
                         }
                     }
-                });
+                }, 5000);
 
-                if (found > 0) console.log(`[EAR] Synced ${found} new remote audio tracks.`);
-            };
+                setInterval(captureAudio, 10000); // Check every 10s
+                captureAudio(); // Initial check
 
-            let silenceCount = 0;
-            setInterval(() => {
-                analyser.getByteFrequencyData(dataArray);
-                let sum = 0;
-                for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-                const avg = sum / dataArray.length;
+                // FALLBACK: Capture any <audio> elements in the DOM
+                const captureDOMElements = () => {
+                    const audios = document.querySelectorAll('audio');
+                    audios.forEach(a => {
+                        if (!a.dataset_captured && a.srcObject) { // ONLY if it has a stream
+                            try {
+                                const source = ctx.createMediaStreamSource(a.srcObject);
+                                source.connect(mixer);
+                                a.dataset_captured = "true";
+                                console.log('[EAR] 🔗 Captured DOM <audio> element stream');
+                            } catch (e) { }
+                        }
+                    });
+                };
+                setInterval(captureDOMElements, 5000);
 
-                if (avg > 0.5) { // Lower threshold slightly
-                    silenceCount = 0;
-                    if (Math.random() > 0.95) console.log(`[EAR] 🎵 Mixer Signal: Vol=${Math.round(avg)}`);
-                } else {
-                    silenceCount++;
-                    if (silenceCount % 12 === 0) {
-                        console.log('[EAR] 🔇 WARNING: Absolute silence in mixer (headless behavior?)');
-                        if (ctx.state === 'suspended') ctx.resume();
-                        // Trigger re-scan of tracks
-                        captureAudio();
+                const stream = dest.stream;
+                const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+                const mediaRecorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64000 });
+
+                mediaRecorder.ondataavailable = async (e) => {
+                    if (e.data && e.data.size > 0) {
+                        const reader = new FileReader();
+                        reader.onload = () => window.sendAudioChunk(reader.result.split(',')[1]);
+                        reader.readAsDataURL(e.data);
                     }
-                }
-            }, 5000);
+                };
 
-            setInterval(captureAudio, 10000); // Check every 10s
-            captureAudio(); // Initial check
-
-            const stream = dest.stream;
-            const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-            const mediaRecorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64000 });
-
-            mediaRecorder.ondataavailable = async (e) => {
-                if (e.data && e.data.size > 0) {
-                    const reader = new FileReader();
-                    reader.onload = () => window.sendAudioChunk(reader.result.split(',')[1]);
-                    reader.readAsDataURL(e.data);
-                }
-            };
-            // --- DIARIZATION: SPEAKER SCRAPER ---
-            window.__speakerTimeline = [];
-            const sessionStartTs = Date.now();
-
-            const scanSpeakers = () => {
-                const nowMs = Date.now() - sessionStartTs;
-                let activeSpeakerName = null;
-
-                // Method 1: Check Aria-Labels (Most robust for accessibility compliance)
-                // Teams often uses "Name, Speaking" or "Name is speaking"
-                const speakingEls = document.querySelectorAll('[aria-label*="speaking" i], [aria-label*="Speaking" i]');
-                if (speakingEls.length > 0) {
-                    // Get the text, remove "Speaking", trim
-                    const raw = speakingEls[0].getAttribute('aria-label') || '';
-                    activeSpeakerName = raw.replace(/,?\s*is speaking.*/i, '').replace(/,?\s*speaking.*/i, '').trim();
-                }
-
-                // Method 2: Check standard avatar rings (backup)
-                if (!activeSpeakerName) {
-                    const avatarRing = document.querySelector('.ui-avatar--speaking, .ui-list__item--speaking');
-                    if (avatarRing) {
-                        const parent = avatarRing.closest('[role="listitem"]') || avatarRing.parentElement;
-                        activeSpeakerName = parent ? (parent.innerText || '').split('\n')[0].trim() : 'Active Speaker';
+                // NEW: Stop & Start Strategy for perfect standalone chunks
+                setInterval(() => {
+                    try {
+                        if (mediaRecorder.state === 'recording') {
+                            mediaRecorder.stop();
+                            mediaRecorder.start();
+                            // console.log('[EAR] Rotated recording for clean chunking.');
+                        }
+                    } catch (e) {
+                        console.error('[EAR] Rotation failed:', e.message);
                     }
-                }
+                }, 10000); // Rotate every 10s
 
-                // Push to timeline if changed
-                if (activeSpeakerName && activeSpeakerName !== 'You' && activeSpeakerName !== 'Meeting Participant') {
-                    const last = window.__speakerTimeline[window.__speakerTimeline.length - 1];
-                    if (!last || last.name !== activeSpeakerName) {
-                        // Close previous
-                        if (last) last.endMs = nowMs;
-                        // Open new
-                        window.__speakerTimeline.push({
-                            name: activeSpeakerName,
-                            startMs: nowMs,
-                            timestamp: Date.now()
-                        });
-                        console.log(`[EAR] 🗣️ Speaker detected: ${activeSpeakerName}`);
-                    } else {
-                        // Extend current
-                        last.endMs = nowMs + 1000; // Keep alive
+                try {
+                    if (mediaRecorder.state !== 'recording') {
+                        mediaRecorder.start();
+                        console.log('[EAR] MediaRecorder started clean.');
                     }
+                } catch (e) {
+                    console.error('[EAR] Initial start error:', e.message);
                 }
-            };
-            setInterval(scanSpeakers, 500); // Check every 500ms
+                // --- DIARIZATION: SPEAKER SCRAPER ---
+                window.__speakerTimeline = [];
+                const sessionStartTs = Date.now();
 
-            // FIX: Standard 5s chunks for stability
-            mediaRecorder.start(5000);
-            window.meetingMediaRecorder = mediaRecorder;
-            console.log(`[EAR] Live Stream Active (${mimeType})`);
-        });
+                const scanSpeakers = () => {
+                    const nowMs = Date.now() - sessionStartTs;
+                    let activeSpeakerName = null;
+
+                    // Method 1: Check Aria-Labels (Most robust for accessibility compliance)
+                    // Teams often uses "Name, Speaking" or "Name is speaking"
+                    const speakingEls = document.querySelectorAll('[aria-label*="speaking" i], [aria-label*="Speaking" i]');
+                    if (speakingEls.length > 0) {
+                        // Get the text, remove "Speaking", trim
+                        const raw = speakingEls[0].getAttribute('aria-label') || '';
+                        activeSpeakerName = raw.replace(/,?\s*is speaking.*/i, '').replace(/,?\s*speaking.*/i, '').trim();
+                    }
+
+                    if (activeSpeakerName) {
+                        // Send to Node process
+                        if (window.sendSpeakerEvent) window.sendSpeakerEvent(activeSpeakerName, nowMs);
+                    }
+
+                    // Method 2: Check standard avatar rings (backup)
+                    if (!activeSpeakerName) {
+                        const avatarRing = document.querySelector('.ui-avatar--speaking, .ui-list__item--speaking');
+                        if (avatarRing) {
+                            const parent = avatarRing.closest('[role="listitem"]') || avatarRing.parentElement;
+                            activeSpeakerName = parent ? (parent.innerText || '').split('\n')[0].trim() : 'Active Speaker';
+                        }
+                    }
+
+                    // Push to timeline if changed
+                    if (activeSpeakerName && activeSpeakerName !== 'You' && activeSpeakerName !== 'Meeting Participant') {
+                        const last = window.__speakerTimeline[window.__speakerTimeline.length - 1];
+                        if (!last || last.name !== activeSpeakerName) {
+                            // Close previous
+                            if (last) last.endMs = nowMs;
+                            // Open new
+                            window.__speakerTimeline.push({
+                                name: activeSpeakerName,
+                                startMs: nowMs,
+                                timestamp: Date.now()
+                            });
+                            console.log(`[EAR] 🗣️ Speaker detected: ${activeSpeakerName}`);
+                        } else {
+                            // Extend current
+                            last.endMs = nowMs + 1000; // Keep alive
+                        }
+                    }
+                };
+                setInterval(scanSpeakers, 500); // Check every 500ms
+
+                // Start call REMOVED (handled above with robust checks)
+                // mediaRecorder.start(5000); 
+
+                window.meetingMediaRecorder = mediaRecorder;
+                console.log(`[EAR] Live Stream Active (${mimeType}) - Recorder assigned to window.`);
+            });
+        } catch (e) {
+            log('❌ Virtual Ear Init Error (Non-Fatal): ' + e.message);
+        }
 
         await new Promise(r => setTimeout(r, 3000));
 
@@ -789,13 +855,13 @@ const pid = process.pid;
         // Priority 1: Check for LOBBY (this is SUCCESS, not failure)
         const checkLobby = async () => {
             try {
-                const lobbyIndicators = await page.$x(
-                    "//*[contains(text(), \"let people know you're waiting\") or " +
-                    "contains(text(), 'waiting to be admitted') or " +
-                    "contains(text(), 'Someone will let you in shortly') or " +
-                    "contains(text(), 'Please wait for the host')]"
-                );
-                return lobbyIndicators.length > 0;
+                return await page.evaluate(() => {
+                    const text = document.body.innerText;
+                    return text.includes("let people know you're waiting") ||
+                        text.includes('waiting to be admitted') ||
+                        text.includes('Someone will let you in shortly') ||
+                        text.includes('Please wait for the host');
+                });
             } catch (e) {
                 return false;
             }
@@ -871,7 +937,7 @@ const pid = process.pid;
                     // MODAL BUSTER: Clear blocking modals (RECURSIVE)
                     await page.evaluate(() => {
                         const scanner = (doc) => {
-                            if (!doc) return;
+                            if (!doc || !doc.body) return;
                             const buttons = Array.from(doc.querySelectorAll('button'));
 
                             // First priority: dismiss the blocking permission modal
@@ -900,7 +966,10 @@ const pid = process.pid;
                             // If audio modal reappears (e.g. after lobby admission),
                             // ensure "Computer audio" is selected and click "Join now"
                             const bodyText = doc.body.innerText;
-                            if (bodyText.includes('Computer audio') || bodyText.includes('Don\'t use audio')) {
+                            const isWaitingInLobby = bodyText.includes("waiting to be admitted") ||
+                                bodyText.includes("Someone will let you in shortly");
+
+                            if (!isWaitingInLobby && (bodyText.includes('Computer audio') || bodyText.includes('Don\'t use audio'))) {
                                 // Select Computer audio
                                 const labels = Array.from(doc.querySelectorAll('label, div, span'));
                                 const caLabel = labels.find(el => el.textContent?.trim().toLowerCase() === 'computer audio');
@@ -915,6 +984,22 @@ const pid = process.pid;
                                     joinBtn.click();
                                     console.log('[MODAL] Re-clicked Join now with Computer audio');
                                 }
+                            }
+
+                            // FORCE JOIN RETRY: If we see "Join now" but no "Waiting...", click it!
+                            // This covers cases where we fell out of lobby or didn't click correctly
+                            const mainJoin = buttons.find(b => {
+                                const txt = b.innerText.trim().toLowerCase();
+                                return txt === 'join now' || txt === 'join meeting';
+                            });
+                            if (mainJoin) {
+                                // Only click if we are NOT in a "Connecting..." state? 
+                                // Actually, if "Join now" is visible and enabled, we should probably click it.
+                                // But prevent double-clicking if we just clicked.
+                                // We rely on the loop speed (2s).
+                                // console.log('[MODAL] Found Join text, ensuring we click it...');
+                                // mainJoin.click(); 
+                                // CAUTION: This might loop. Let's rely on the explicit checkLobby/checkInMeeting
                             }
 
                             // Recurse into iframes
