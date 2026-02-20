@@ -8,6 +8,8 @@ import path from 'path';
 // }
 
 const MEETING_URL = process.argv[2];
+const MEETING_ID_ARG = process.argv[3]; // Capture optional meeting ID
+const MEETING_ID = MEETING_ID_ARG || MEETING_URL.split('/').pop().split('?')[0] || `session-${Date.now()}`;
 
 if (!MEETING_URL) {
     console.error(" FATAL: MEETING_URL is not defined");
@@ -17,11 +19,11 @@ if (!MEETING_URL) {
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 const RECORDINGS_DIR = path.resolve(process.cwd(), 'recordings');
 if (!fs.existsSync(RECORDINGS_DIR)) fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
-const RECORDING_PATH = path.resolve(RECORDINGS_DIR, `meeting-${timestamp}.webm`);
-const TRANSCRIPT_PATH = path.resolve(RECORDINGS_DIR, `transcript-${timestamp}.txt`);
+const RECORDING_PATH = path.resolve(RECORDINGS_DIR, `meeting-${MEETING_ID}-${timestamp}.webm`);
+const TRANSCRIPT_PATH = path.resolve(RECORDINGS_DIR, `transcript-${MEETING_ID}-${timestamp}.txt`);
 
 function log(msg) {
-    console.log(`[BOT] ${msg}`);
+    console.log(`[BOT ${MEETING_ID.substring(0, 8)}...] ${msg}`);
 }
 
 // Helper to safely send IPC messages
@@ -106,6 +108,8 @@ const pid = process.pid;
     let audioHeader = null;
     let activeChunks = []; // NEW: Buffer for incremental transcription
     let fullSegments = []; // NEW: All segments found so far
+    let globalOffset = 0.0; // Track total duration for timestamp shifting
+    let chunkBatchCount = 0; // Track batches sent
 
     await page.exposeFunction('sendAudioChunk', (chunkBase64) => {
         const buffer = Buffer.from(chunkBase64, 'base64');
@@ -115,17 +119,83 @@ const pid = process.pid;
             audioHeader = buffer;
             log('🎵 Captured audio stream header');
         } else {
-            // activeChunks.push(buffer); // Disabled to prevent memory leak
+            activeChunks.push(buffer); // Enabled for Live STT
         }
 
         audioStream.write(buffer);
         totalBytesReceived += buffer.length;
 
-        // Log every ~500KB to show life (less noisy)
-        if (Math.floor(totalBytesReceived / (1024 * 500)) > Math.floor((totalBytesReceived - buffer.length) / (1024 * 500))) {
-            log(`🎤 Audio Data Ingested (${Math.round(totalBytesReceived / 1024)}KB total)`);
+        // Log every ~5MB to show life (less noisy)
+        if (Math.floor(totalBytesReceived / (1024 * 1024 * 5)) > Math.floor((totalBytesReceived - buffer.length) / (1024 * 1024 * 5))) {
+            log(`🎤 Audio Data Ingested (${Math.round(totalBytesReceived / 1024 / 1024)}MB total)`);
         }
     });
+
+    // --- INCREMENTAL TRANSCRIPTION LOOP ---
+    setInterval(async () => {
+        if (activeChunks.length === 0 || !audioHeader) return;
+
+        chunkBatchCount++;
+        const currentBatchSize = activeChunks.length;
+        log(`📤 [Batch #${chunkBatchCount}] Sending ${currentBatchSize} chunks to STT Engine...`);
+
+        // 1. Create a playable chunk (Header + New Data)
+        const batchBuffer = Buffer.concat([audioHeader, ...activeChunks]);
+        const chunkPath = path.resolve(RECORDINGS_DIR, `live_chunk_${MEETING_ID}_${Date.now()}.webm`);
+
+        // Clear buffer immediately to avoid overlap/duplication
+        activeChunks = [];
+
+        try {
+            fs.writeFileSync(chunkPath, batchBuffer);
+
+            // 2. Send to Local STT Service
+            const formData = new FormData();
+            const blob = new Blob([batchBuffer], { type: 'audio/webm' });
+            formData.append('file', blob, 'chunk.webm');
+            formData.append('meeting_id', MEETING_ID);
+
+            const sttUrl = 'http://localhost:4545/transcribe';
+            const response = await fetch(sttUrl, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+
+                if (result.transcript && result.transcript.length > 0) {
+                    // 3. Shift timestamps and append
+                    const shifted = result.transcript.map(s => ({
+                        ...s,
+                        start: s.start_time + globalOffset,
+                        end: s.end_time + globalOffset
+                    }));
+
+                    fullSegments.push(...shifted);
+
+                    // Log the update
+                    const snippet = shifted.map(s => s.text).join(' ').substring(0, 40);
+                    log(`✅ [Batch #${chunkBatchCount}] Transcribed: "${snippet}..." (+${Math.round(result.duration)}s audio)`);
+
+                    // 4. Send Update to Manager (which saves to DB)
+                    sendIPC('transcript', { segments: fullSegments });
+                }
+
+                // Update offset (approximate with decoded duration)
+                globalOffset += result.duration;
+
+            } else {
+                log(`⚠️ STT Server Error: ${response.status} ${response.statusText}`);
+            }
+
+            // Cleanup temp file
+            if (fs.existsSync(chunkPath)) fs.unlinkSync(chunkPath);
+
+        } catch (e) {
+            log(`❌ Live Transcription Failed: ${e.message}`);
+        }
+    }, 10000); // Run every 10 seconds
 
     // Expose a function to track speaker changes
     await page.exposeFunction('sendSpeakerEvent', (name) => {
@@ -1349,41 +1419,56 @@ const pid = process.pid;
                 });
             } catch (e) { }
 
-            // PERIODIC AUDIO STREAM RE-SCAN (every 30s)
-            // Teams dynamically adds/removes audio streams as participants join/leave/unmute
+            // PERIODIC WEBRTC TRACK SCAN (every cycle)
+            // Teams dynamically adds/removes audio tracks as participants join/leave/unmute
             try {
-                const rehookResult = await page.evaluate(() => {
-                    const ctx = window.__earAudioContext;
-                    const mixer = window.__earMixer;
-                    if (!ctx || !mixer) return 0;
-                    const getAllElements = (doc) => {
-                        let els = [...doc.querySelectorAll('audio'), ...doc.querySelectorAll('video')];
-                        doc.querySelectorAll('iframe').forEach(iframe => {
-                            try { if (iframe.contentDocument) els = [...els, ...getAllElements(iframe.contentDocument)]; } catch (e) { }
-                        });
-                        return els;
-                    };
-                    const elements = getAllElements(document);
-                    let newStreams = 0;
-                    elements.forEach(el => {
-                        const stream = el.srcObject || (el.captureStream ? el.captureStream() : null);
-                        if (stream && stream.getAudioTracks().length > 0 && !el.dataset.captured) {
-                            try {
-                                el.dataset.captured = 'true';
-                                el.muted = false;
-                                el.volume = 1.0;
-                                const source = ctx.createMediaStreamSource(stream);
-                                source.connect(mixer);
-                                newStreams++;
-                                console.log(`[EAR] New participant stream found: ${stream.id}`);
-                            } catch (e) { }
-                        }
-                    });
-                    return newStreams;
+                const newTracks = await page.evaluate(() => {
+                    if (window.__scanRemoteTracks) return window.__scanRemoteTracks();
+                    return 0;
                 });
-                if (rehookResult > 0) {
-                    console.log(`🎧 Re-hooked ${rehookResult} new audio stream(s)`);
+                if (newTracks > 0) {
+                    log(`🎧 Re-hooked ${newTracks} new audio track(s) via WebRTC scan`);
                 }
+            } catch (e) { }
+
+            // GHOST MEETING CHECK (Solo Participant Detection)
+            try {
+                const participantCount = await page.evaluate(() => {
+                    // Look for "In this meeting (N)" or similar counters
+                    const text = document.body.innerText;
+                    // Try to find "In this meeting (1)" or just "1" in roster
+                    // Just check aria-labels on roster items
+                    const rosterItems = document.querySelectorAll('[data-tid="participant-item"]');
+                    if (rosterItems.length > 0) return rosterItems.length;
+
+                    if (text.includes("Wait for others to join")) return 1;
+                    if (text.includes("When the meeting starts")) return 1;
+
+                    return 2; // Default to safe "2" if unsure to avoid premature exit
+                });
+
+                if (participantCount <= 1) {
+                    soloTicks++;
+                    if (soloTicks % 3 === 0) log(`⚠️ Bot is alone in meeting (Tick ${soloTicks}/3)...`);
+
+                    if (soloTicks >= 3) { // ~30 seconds of being alone
+                        log('🛑 GHOST MEETING DETECTED (Alone for >30s). Exiting...');
+                        meetingEnded = true;
+                    }
+                } else {
+                    soloTicks = 0; // Reset if others are found
+                }
+
+                // Check explicitly for "Meeting ended" screen
+                const meetingEndedText = await page.evaluate(() => {
+                    const txt = document.body.innerText;
+                    return txt.includes("Meeting ended") || txt.includes("The meeting has ended") || txt.includes("You'll be the only one here");
+                });
+                if (meetingEndedText) {
+                    log('🛑 "Meeting Ended" screen detected. Exiting...');
+                    meetingEnded = true;
+                }
+
             } catch (e) { }
 
             // SPEAKER DETECTION: Harvested by in-page poller every 2s

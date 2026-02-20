@@ -128,6 +128,9 @@ def is_hallucination(text: str) -> bool:
 
     return False
 
+# Global Session Stats for "Smart Terminal"
+session_stats = {}
+
 @app.post("/transcribe", response_model=TranscriptionResponse)
 async def transcribe(
     file: UploadFile = File(...), 
@@ -135,7 +138,15 @@ async def transcribe(
     speaker_names: Optional[str] = Form(None)
 ):
     if not meeting_id:
-        meeting_id = str(uuid.uuid4())
+        meeting_id = f"anon-{str(uuid.uuid4())[:8]}"
+    
+    # Initialize session stats if new
+    if meeting_id not in session_stats:
+        print(f"\n✨ [NEW SESSION] Detected bot: {meeting_id}")
+        session_stats[meeting_id] = {"count": 0, "total_duration": 0.0}
+    
+    session_stats[meeting_id]["count"] += 1
+    batch_num = session_stats[meeting_id]["count"]
     
     start_ts = time.time()
     
@@ -150,25 +161,21 @@ async def transcribe(
     with open(file_path, "wb") as f:
         content = await file.read()
         f.write(content)
-        print(f"📁 Received {len(content)} bytes for {meeting_id}")
     
     # FFmpeg Conversion (No Loudnorm)
     normalized_path = convert_and_normalize(file_path)
     if not normalized_path:
-        print("⚠️ FFmpeg failed. Using original WebM file.")
+        print(f"⚠️ [{meeting_id}] FFmpeg failed. Using original.")
         normalized_path = file_path
     
-    # Log Energy for debugging only (No Gate)
-    if normalized_path.endswith(".wav"):
-        rms = get_rms_energy(normalized_path)
-        print(f"🔊 Audio RMS: {rms:.2f}")
-
     try:
+        print(f"🎙️ [{meeting_id}] Processing Batch #{batch_num}...", end="\r")
+        
         # Transcribe with faster-whisper WITH VAD
         segments, info = model.transcribe(
             normalized_path, 
             beam_size=5, 
-            vad_filter=True,        # ENABLE VAD
+            vad_filter=True,
             vad_parameters=dict(min_silence_duration_ms=500),
             initial_prompt="This is a meeting transcript. The speakers are discussing technical details.",
             condition_on_previous_text=False,
@@ -177,42 +184,47 @@ async def transcribe(
         )
         
         segments_list = list(segments)
-        print(f"👂 Whisper found {len(segments_list)} raw segments.")
-        
         transcript_entries = []
+        snippet = ""
+        
         for segment in segments_list:
             text = segment.text.strip()
-            print(f"   [RAW] {segment.start:.1f}s: \"{text}\"")
             if is_hallucination(text):
-                print(f"   ❌ Skipped hallucination: \"{text}\"")
                 continue
+            
             transcript_entries.append(TranscriptEntry(
                 start_time=segment.start,
                 end_time=segment.end,
                 speaker_id="Meeting Participant",
                 text=text
             ))
-            print(f"   ✅ Saved: {text}")
-        
-        # Fallback if VAD returned 0 segments
-        if len(transcript_entries) == 0:
-            print("⚠️ VAD returned 0 segments. Accepting as silence.")
+            if not snippet: snippet = text
 
         end_ts = time.time()
-        full_text = ' '.join(e.text for e in transcript_entries)
-        print(f"✅ Transcribed {len(transcript_entries)} segments in {end_ts - start_ts:.2f}s")
+        process_time = end_ts - start_ts
+        audio_dur = info.duration
         
+        # Update Stats
+        session_stats[meeting_id]["total_duration"] += audio_dur
+        
+        # Smart Log Output
+        full_text = ' '.join(e.text for e in transcript_entries)
+        if transcript_entries:
+            print(f"✅ [{meeting_id}] Batch #{batch_num} ({audio_dur:.1f}s audio / {process_time:.2f}s proc) -> \"{snippet[:40]}...\"")
+        else:
+            print(f"💤 [{meeting_id}] Batch #{batch_num} (Silence/No Speech) - {process_time:.2f}s proc")
+
         return TranscriptionResponse(
             meeting_id=meeting_id,
             status="completed",
             transcript=transcript_entries,
             text=full_text,
-            duration=end_ts - start_ts,
+            duration=info.duration,
             audio_path=filename
         )
         
     except Exception as e:
-        print(f"❌ Transcription failed: {str(e)}")
+        print(f"❌ [{meeting_id}] Error: {str(e)}")
         raise e
 
 if __name__ == "__main__":

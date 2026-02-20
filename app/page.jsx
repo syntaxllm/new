@@ -126,22 +126,34 @@ const LiveTranscript = ({ vttContent }) => {
     if (!vttContent) return <div className="text-gray-500 italic p-4 text-center">Waiting for speech...</div>;
 
     const segments = [];
-    const lines = vttContent.split('\n');
-    let currentSegment = null;
 
-    lines.forEach(line => {
-        if (line.includes('-->')) {
-            currentSegment = { time: line.split('-->')[0].trim() };
-        } else if (line.startsWith('<v')) {
-            const match = line.match(/<v (.*?)>(.*)<\/v>/);
-            if (match && currentSegment) {
-                currentSegment.speaker = match[1];
-                currentSegment.text = match[2];
-                segments.push(currentSegment);
-                currentSegment = null;
+    // Check if vttContent is actually a JSON array (from DB)
+    if (Array.isArray(vttContent)) {
+        vttContent.forEach(item => {
+            segments.push({
+                time: `${new Date(item.start_time * 1000).toISOString().substr(11, 8)}`,
+                speaker: item.speaker_id || 'Unknown',
+                text: item.text
+            });
+        });
+    } else if (typeof vttContent === 'string') {
+        // Parse VTT String
+        const lines = vttContent.split('\n');
+        let currentSegment = null;
+        lines.forEach(line => {
+            if (line.includes('-->')) {
+                currentSegment = { time: line.split('-->')[0].trim() };
+            } else if (line.startsWith('<v')) {
+                const match = line.match(/<v (.*?)>(.*)<\/v>/);
+                if (match && currentSegment) {
+                    currentSegment.speaker = match[1];
+                    currentSegment.text = match[2];
+                    segments.push(currentSegment);
+                    currentSegment = null;
+                }
             }
-        }
-    });
+        });
+    }
 
     const getSpeakerColor = (name) => {
         const colors = [
@@ -450,12 +462,20 @@ export default function MeetingAI() {
     };
 
     useEffect(() => {
-        if (selectedMeeting && selectedMeeting.path) {
-            // Fetch VTT content
-            fetch(selectedMeeting.path)
-                .then(r => r.text())
-                .then(text => setMeetingContent(text))
-                .catch(err => console.error('Failed to load meeting content:', err));
+        if (selectedMeeting) {
+            // Priority 1: Use transcript array if available (from MongoDB)
+            if (selectedMeeting.transcript && Array.isArray(selectedMeeting.transcript) && selectedMeeting.transcript.length > 0) {
+                setMeetingContent(selectedMeeting.transcript);
+            }
+            // Priority 2: Use file path if available (legacy/fallback)
+            else if (selectedMeeting.path) {
+                fetch(selectedMeeting.path)
+                    .then(r => r.text())
+                    .then(text => setMeetingContent(text))
+                    .catch(e => console.error('Failed to load transcript file:', e));
+            } else {
+                setMeetingContent('');
+            }
         } else {
             setMeetingContent('');
         }
@@ -473,7 +493,11 @@ export default function MeetingAI() {
             {/* Header */}
             <header className="flex-shrink-0 bg-[#333366]/80 backdrop-blur-xl text-white h-14 px-6 flex items-center justify-between shadow-lg z-50 border-b border-white/10">
                 <div className="flex items-center gap-3 text-xl font-bold tracking-tight">
-                    <span className="premium-gradient p-1.5 rounded-lg shadow-inner">⌯</span>
+                    <div className="p-1.5 rounded-lg shadow-inner bg-white/10">
+                        <svg className="w-5 h-5 text-teams-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                        </svg>
+                    </div>
                     <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">MeetingAI</span>
                 </div>
                 <div className="flex items-center gap-5 text-sm">
@@ -488,7 +512,15 @@ export default function MeetingAI() {
                     {status && <span className="opacity-80 text-xs italic animate-pulse">{status}</span>}
 
                     <button onClick={toggleTheme} className="p-2 rounded-full hover:bg-white/10 transition-colors" title="Toggle Theme">
-                        {theme === 'light' ? '🌙' : '☀️'}
+                        {theme === 'light' ? (
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                            </svg>
+                        ) : (
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                            </svg>
+                        )}
                     </button>
 
                     {/* User Profile in Header */}
@@ -528,7 +560,13 @@ export default function MeetingAI() {
                     <div className="p-4 border-b border-teams-border bg-black/10">
                         <h3 className="text-xs uppercase font-bold text-teams-text-secondary mb-3 flex justify-between items-center">
                             <span>Bot Actions</span>
-                            {isLoggedIn && <button onClick={loadActiveMeetings} className="hover:text-white" title="Refresh Active Meetings">↻</button>}
+                            {isLoggedIn && (
+                                <button onClick={loadActiveMeetings} className="hover:text-white" title="Refresh Active Meetings">
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                </button>
+                            )}
                         </h3>
 
                         {/* 1. AUTO DETECT / JOIN CURRENT (Only if logged in) */}
@@ -545,7 +583,11 @@ export default function MeetingAI() {
                                     onClick={() => launchBot(activeMeetings.find(m => m.isCurrent))}
                                     className="w-full py-2 bg-gradient-to-r from-green-700 to-green-600 hover:from-green-600 hover:to-green-500 text-white text-xs font-bold rounded shadow-lg flex items-center justify-center gap-2 transition-all"
                                 >
-                                    <span>🚀 Join &quot;{activeMeetings.find(m => m.isCurrent).subject}&quot;</span>
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <span>Join &quot;{activeMeetings.find(m => m.isCurrent).subject}&quot;</span>
                                 </button>
                             </div>
                         )}
@@ -653,8 +695,19 @@ export default function MeetingAI() {
                                         onClick={() => handleMeetingSelect(m)}
                                     >
                                         <div className="flex items-center gap-2 mb-1">
+                                            <div className="text-teams-primary">
+                                                {m.meetingId === 'Manual Recording' ? (
+                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                    </svg>
+                                                ) : (
+                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                                    </svg>
+                                                )}
+                                            </div>
                                             <h4 className="font-semibold truncate text-sm text-teams-text-primary">
-                                                {m.meetingId === 'Manual Recording' ? '📝 Manual Meeting' : `📅 ${m.meetingId}`}
+                                                {m.meetingId === 'Manual Recording' ? 'Manual Meeting' : `${m.meetingId}`}
                                             </h4>
                                             {isRecent && <span className="text-[9px] bg-teams-primary/20 text-teams-primary px-1 rounded-sm font-bold border border-teams-primary/30">NEW</span>}
                                         </div>
@@ -670,9 +723,12 @@ export default function MeetingAI() {
                     </div>
                     <div className="p-4 border-t border-teams-border">
                         <input id="file-upload" type="file" onChange={doUpload} accept=".vtt" className="hidden" />
-                        <button className="w-full bg-white/10 hover:bg-white/20 text-teams-text-primary font-semibold py-2 px-4 rounded-md text-sm"
+                        <button className="w-full bg-white/10 hover:bg-white/20 text-teams-text-primary font-semibold py-2 px-4 rounded-md text-sm flex items-center justify-center gap-2"
                             onClick={() => document.getElementById('file-upload').click()}>
-                            Upload VTT
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                            </svg>
+                            <span>Upload VTT</span>
                         </button>
                     </div>
                 </div>
@@ -726,7 +782,7 @@ export default function MeetingAI() {
                                     {/* Locked tabs for live sessions */}
                                     {['summary', 'actions', 'chat'].map(tab => {
                                         const isLocked = !!selectedBot;
-                                        const labels = { summary: 'AI Summary', actions: 'Action Items', chat: '☕︎ Chat' };
+                                        const labels = { summary: 'AI Summary', actions: 'Action Items', chat: 'Chat' };
                                         return (
                                             <button
                                                 key={tab}
@@ -837,7 +893,11 @@ export default function MeetingAI() {
                                         <div className="flex-1 overflow-y-auto p-6 space-y-6">
                                             {chatMessages.length === 0 && (
                                                 <div className="flex flex-col items-center justify-center h-full text-center space-y-4 opacity-50">
-                                                    <div className="text-4xl">☕︎</div>
+                                                    <div className="text-teams-primary p-4 bg-white/5 rounded-full mb-2">
+                                                        <svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                                                        </svg>
+                                                    </div>
                                                     <p className="text-sm font-bold uppercase tracking-widest">Ask anything about this meeting</p>
                                                 </div>
                                             )}
@@ -942,12 +1002,20 @@ export default function MeetingAI() {
                                     </div>
                                     <div className="mt-12 pt-12 border-t border-white/5 w-64 mx-auto">
                                         <p className="text-[10px] font-black text-gray-700 uppercase tracking-widest mb-4">Or Select From History</p>
-                                        <div className="text-4xl opacity-20">☕︎</div>
+                                        <div className="text-teams-primary/20 flex justify-center">
+                                            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                        </div>
                                     </div>
                                 </div>
                             ) : (
                                 <div className="space-y-6">
-                                    <div className="text-6xl mb-4 animate-bounce">☕︎</div>
+                                    <div className="text-teams-primary mb-4 animate-bounce flex justify-center">
+                                        <svg className="w-16 h-16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                                        </svg>
+                                    </div>
                                     <h3 className="text-3xl font-black tracking-tighter text-teams-text-primary uppercase">Select a meeting</h3>
                                     <p className="max-w-sm text-teams-text-secondary leading-relaxed mx-auto text-lg opacity-80">
                                         Join an active session above or browse your archived transcripts in the library sidebar.
