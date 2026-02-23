@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 faster-whisper
-
+pydantic
 torch
 torchaudio
 python-multipart

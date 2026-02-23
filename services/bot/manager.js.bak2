@@ -238,9 +238,6 @@ class BotManager extends EventEmitter {
                 ? b.speakerEvents[b.speakerEvents.length - 1].name
                 : null;
 
-            // Add participants list for UI pills
-            safeBot.participants = [...new Set(b.transcriptSegments?.map(s => s.speaker) || [])].filter(Boolean);
-
             // Explicitly ensure VTT and Segments are passed
             safeBot.vttContent = b.vttContent;
             safeBot.transcriptSegments = b.transcriptSegments;
@@ -398,7 +395,7 @@ class BotManager extends EventEmitter {
                 speaker = s.speaker || subject || 'Speaker';
             }
 
-            // Mutation: Save the stitched speaker back into the segment object
+            // Mutaion: Save the stitched speaker back into the segment object
             // This ensures the live UI (which reads session.transcriptSegments) displays the correct speaker.
             s.speaker = speaker;
 
@@ -427,9 +424,15 @@ class BotManager extends EventEmitter {
 
             // We use the internal URL or localhost
             const port = process.env.PORT || 5656;
-            const baseUrl = `http://127.0.0.1:${port}`;
+            const baseUrl = `http://localhost:${port}`;
 
-            // Ensure one final storage/vectorization pass with full data FIRST
+            console.log(`[BotManager] Triggering AI Summary for ${meetingId}`);
+            const summaryRes = await fetch(`${baseUrl}/api/summary/${meetingId}`);
+
+            console.log(`[BotManager] Triggering Action Items for ${meetingId}`);
+            const actionRes = await fetch(`${baseUrl}/api/actions/${meetingId}`);
+
+            // Ensure one final storage/vectorization pass with full data
             if (session.vttContent) {
                 const { ingestBotTranscript } = await import('../../lib/backend-adapter.js');
                 // Set final flag to trigger vectorization
@@ -437,12 +440,6 @@ class BotManager extends EventEmitter {
                 await ingestBotTranscript(meetingId, session.vttContent, finalMetadata);
                 console.log(`[BotManager] 🎯 Final Vectorization Sync complete for ${meetingId}`);
             }
-
-            console.log(`[BotManager] Triggering AI Summary for ${meetingId}`);
-            const summaryRes = await fetch(`${baseUrl}/api/summary/${meetingId}`);
-
-            console.log(`[BotManager] Triggering Action Items for ${meetingId}`);
-            const actionRes = await fetch(`${baseUrl}/api/actions/${meetingId}`);
 
             this.addBotLog(id, '✨ AI Finalization successful: Summary, Action Items, and Vector Index updated.', 'info');
             console.log(`[BotManager] ✅ Meeting ${meetingId} fully processed.`);

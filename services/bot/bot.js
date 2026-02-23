@@ -66,7 +66,7 @@ const pid = process.pid;
 
     const browser = await puppeteer.launch({
         headless: 'new',
-        defaultViewport: null,
+        defaultViewport: { width: 1920, height: 1080 },
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -86,7 +86,10 @@ const pid = process.pid;
             '--disable-webrtc-hw-encoding',
             '--disable-webrtc-hw-decoding',
             '--enable-features=WebRtcHideLocalIpsWithMdns',
-            '--allow-loopback-in-peer-connection'
+            '--allow-loopback-in-peer-connection',
+            // Iframe/Security Bypass (Critical for cross-origin join buttons)
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins,site-per-process'
         ]
     });
 
@@ -99,6 +102,8 @@ const pid = process.pid;
         if (text.includes('%c')) return; // Skip styled noise
         log(`[BROWSER] ${text}`);
     });
+
+
 
     // Create a write stream for the audio data
     const audioStream = fs.createWriteStream(RECORDING_PATH);
@@ -125,79 +130,104 @@ const pid = process.pid;
         }
     });
 
-    // --- INCREMENTAL TRANSCRIPTION LOOP ---
+    // --- INCREMENTAL TRANSCRIPTION LOOP (Queue Processor) ---
     setInterval(async () => {
-        if (activeChunks.length === 0) return;
+        if (activeChunks.length === 0 || isTranscribingIncrementally) return;
 
-        chunkBatchCount++;
-        const currentBatchSize = activeChunks.length;
-        log(`📤 [Batch #${chunkBatchCount}] Sending ${currentBatchSize} chunks to STT Engine...`);
+        isTranscribingIncrementally = true;
+        const queue = [...activeChunks];
+        activeChunks = []; // Clear current queue to collect new chunks
 
-        // 1. Take the latest full chunk
-        const batchBuffer = activeChunks[activeChunks.length - 1];
+        log(`📤 [Queue] Processing ${queue.length} chunks...`);
 
-        // Clear buffer immediately
-        activeChunks = [];
+        for (const batchBuffer of queue) {
+            chunkBatchCount++;
 
-        // Check for minimum viable size (e.g., ~1KB) to avoid processing tiny/noise chunks
-        if (batchBuffer.length < 1000) {
-            log(`ℹ️ [Batch #${chunkBatchCount}] Skipped (Small buffer: ${batchBuffer.length} bytes)`);
-            return;
-        }
-
-        const chunkPath = path.resolve(RECORDINGS_DIR, `live_chunk_${MEETING_ID}_${Date.now()}.webm`);
-
-        try {
-            fs.writeFileSync(chunkPath, batchBuffer);
-
-            // 2. Send to Local STT Service
-            const formData = new FormData();
-            const blob = new Blob([batchBuffer], { type: 'audio/webm' });
-            formData.append('file', blob, 'chunk.webm');
-            formData.append('meeting_id', MEETING_ID);
-
-            const sttUrl = 'http://localhost:4545/transcribe';
-            const response = await fetch(sttUrl, {
-                method: 'POST',
-                body: formData
-            });
-
-            if (response.ok) {
-                const result = await response.json();
-
-                if (result.transcript && result.transcript.length > 0) {
-                    // 3. Shift timestamps and append
-                    const shifted = result.transcript.map(s => ({
-                        ...s,
-                        start_time: s.start_time + globalOffset, // Update for UI (JSON)
-                        end_time: s.end_time + globalOffset,     // Update for UI (JSON)
-                        start: s.start_time + globalOffset,      // Update for Manager (VTT)
-                        end: s.end_time + globalOffset           // Update for Manager (VTT)
-                    }));
-
-                    fullSegments.push(...shifted);
-
-                    // Log the update
-                    const snippet = shifted.map(s => s.text).join(' ').substring(0, 40);
-                    log(`✅ [Batch #${chunkBatchCount}] Transcribed: "${snippet}..." (+${Math.round(result.duration)}s audio)`);
-
-                    // 4. Send Update to Manager (which saves to DB)
-                    sendIPC('transcript', { segments: fullSegments });
-                }
-
-                // Update offset (approximate with decoded duration)
-                globalOffset += result.duration;
-
-            } else {
-                log(`⚠️ STT Server Error: ${response.status} ${response.statusText}`);
+            // Check for minimum viable size (e.g., ~1KB) to avoid processing tiny/noise chunks
+            if (batchBuffer.length < 1000) {
+                log(`ℹ️ [Batch #${chunkBatchCount}] Skipped (Small buffer: ${batchBuffer.length} bytes)`);
+                continue;
             }
 
-            // Cleanup temp file
-            if (fs.existsSync(chunkPath)) fs.unlinkSync(chunkPath);
+            const chunkPath = path.resolve(RECORDINGS_DIR, `live_chunk_${MEETING_ID}_${Date.now()}.webm`);
+            let retryCount = 0;
+            const maxRetries = 2;
+            let success = false;
 
-        } catch (e) {
-            log(`❌ Live Transcription Failed: ${e.message}`);
+            while (retryCount <= maxRetries && !success) {
+                try {
+                    fs.writeFileSync(chunkPath, batchBuffer);
+
+                    // 2. Send to Local STT Service
+                    const formData = new FormData();
+                    const blob = new Blob([batchBuffer], { type: 'audio/webm' });
+                    formData.append('file', blob, 'chunk.webm');
+                    formData.append('meeting_id', MEETING_ID);
+
+                    // Use 127.0.0.1 for more reliable localhost resolution on Windows
+                    const sttUrl = 'http://127.0.0.1:4545/transcribe';
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+                    const response = await fetch(sttUrl, {
+                        method: 'POST',
+                        body: formData,
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeoutId);
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        success = true;
+
+                        if (result.transcript && result.transcript.length > 0) {
+                            // 3. Shift timestamps and append
+                            const shifted = result.transcript.map(s => ({
+                                ...s,
+                                start_time: s.start_time + globalOffset, // Update for UI (JSON)
+                                end_time: s.end_time + globalOffset,     // Update for UI (JSON)
+                                start: s.start_time + globalOffset,      // Update for Manager (VTT)
+                                end: s.end_time + globalOffset           // Update for Manager (VTT)
+                            }));
+
+                            fullSegments.push(...shifted);
+
+                            // Log the update
+                            const snippet = shifted.map(s => s.text).join(' ').substring(0, 40);
+                            log(`✅ [Batch #${chunkBatchCount}] Transcribed: "${snippet}..." (+${Math.round(result.duration)}s audio)`);
+
+                            // 4. Send Update to Manager (which saves to DB)
+                            sendIPC('transcript', { segments: fullSegments });
+                        }
+
+                        // Update offset (approximate with decoded duration)
+                        globalOffset += result.duration;
+
+                    } else {
+                        const errText = await response.text().catch(() => 'No error body');
+                        log(`⚠️ STT Server Error (Batch #${chunkBatchCount}): ${response.status} ${errText.substring(0, 100)}`);
+                        if (response.status >= 500 && retryCount < maxRetries) {
+                            throw new Error(`Server error ${response.status}`);
+                        } else {
+                            success = true;
+                        }
+                    }
+
+                } catch (e) {
+                    retryCount++;
+                    const isTimeout = e.name === 'AbortError';
+                    log(`❌ Live Transcription Failed (Batch #${chunkBatchCount}, Attempt ${retryCount}/${maxRetries + 1}): ${isTimeout ? 'Timeout (60s)' : e.message}`);
+
+                    if (retryCount <= maxRetries) {
+                        log(`🔄 Retrying Batch #${chunkBatchCount} in 3s...`);
+                        await new Promise(r => setTimeout(r, 3000));
+                    }
+                } finally {
+                    try { if (fs.existsSync(chunkPath)) fs.unlinkSync(chunkPath); } catch (e) { }
+                }
+            }
         }
+        isTranscribingIncrementally = false;
     }, 10000); // Run every 10 seconds
 
     // Expose a function to track speaker changes
@@ -306,8 +336,8 @@ const pid = process.pid;
     try {
         sendIPC('status', 'NAVIGATING');
         log('🔗 Navigating to meeting URL...');
-        // FAST LANDING: Use 'domcontentloaded' instead of 'networkidle0' because Teams telemetry hangs networkidle.
-        await page.goto(MEETING_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        // FAST LANDING: Use 'networkidle2' or similar instead of 'domcontentloaded' because Teams telemetry hangs networkidle0.
+        await page.goto(MEETING_URL, { waitUntil: 'networkidle2', timeout: 90000 });
 
         log('⏳ Waiting for core page assets...');
         await new Promise(r => setTimeout(r, 10000)); // Fixed 10s wait for initial React paint
@@ -329,15 +359,30 @@ const pid = process.pid;
 
         // Click "Continue on browser"
         let landed = false;
-        for (let i = 0; i < 5; i++) {
-            const result = await page.evaluate(() => {
+        for (let i = 0; i < 7; i++) {
+            const status = await page.evaluate(() => {
+                const text = document.body.innerText.toLowerCase();
+                if (text.includes("this browser isn't supported") || text.includes("unsupported browser")) return 'BROWSER_BLOCKED';
+
                 const scan = (doc) => {
-                    if (doc.querySelector('input[data-tid="prejoin-display-name-input"]')) return 'ALREADY_LANDED';
+                    const nameInput = doc.querySelector('input[data-tid="prejoin-display-name-input"]');
+                    if (nameInput) return 'ALREADY_LANDED';
+
                     const btns = Array.from(doc.querySelectorAll('button'));
                     const b = btns.find(b => {
-                        const t = (b.innerText || '').toLowerCase();
-                        return t.includes('continue on this browser') || t.includes('use the web app') || t.includes('join on the web');
+                        const t = (b.innerText || b.textContent || '').toLowerCase();
+                        const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                        const tid = (b.getAttribute('data-tid') || '').toLowerCase();
+
+                        return t.includes('continue on this browser') ||
+                            t.includes('use the web app') ||
+                            t.includes('join on the web') ||
+                            t === 'continue' ||
+                            aria.includes('join on the web') ||
+                            tid.includes('join-on-web') ||
+                            tid.includes('continue-on-browser');
                     });
+
                     if (b) { b.click(); return 'CLICKED'; }
                     const iframes = doc.querySelectorAll('iframe');
                     for (const f of iframes) {
@@ -347,9 +392,21 @@ const pid = process.pid;
                 };
                 return scan(document);
             });
-            if (result === 'ALREADY_LANDED') { landed = true; break; }
-            if (result === 'CLICKED') { landed = true; await new Promise(r => setTimeout(r, 8000)); break; }
-            await new Promise(r => setTimeout(r, 3000));
+
+            if (status === 'BROWSER_BLOCKED') {
+                log('❌ FATAL: Teams blocked the browser (Unsupported User Agent).');
+                await page.screenshot({ path: path.resolve(debugPath, 'browser-blocked.png') });
+                throw new Error('BROWSER_UNSUPPORTED');
+            }
+            if (status === 'ALREADY_LANDED') { landed = true; break; }
+            if (status === 'CLICKED') {
+                landed = true;
+                log('✅ Clicked "Continue on browser"');
+                await new Promise(r => setTimeout(r, 10000));
+                break;
+            }
+            log(`ℹ️ Landing button not found yet (Attempt ${i + 1}/7)...`);
+            await new Promise(r => setTimeout(r, 4000));
         }
 
 
@@ -360,9 +417,27 @@ const pid = process.pid;
         const uiStart = Date.now();
         while (Date.now() - uiStart < 90000) {
             try {
+                // MODAL BUSTER: Click past any "Allow" or informational overlays
+                await page.evaluate(() => {
+                    const btns = Array.from(document.querySelectorAll('button'));
+                    const modalBtn = btns.find(b => {
+                        const txt = (b.innerText || '').toLowerCase();
+                        return txt.includes('allow') ||
+                            txt.includes('dismiss') ||
+                            txt.includes('got it') ||
+                            txt.includes('ok') ||
+                            txt.includes('continue without audio');
+                    });
+                    if (modalBtn) modalBtn.click();
+                });
+
                 uiReady = await page.evaluate(() => {
                     const check = (doc) => {
-                        if (doc.querySelector('input[data-tid="prejoin-display-name-input"], input[placeholder*="name" i]')) return true;
+                        if (doc.querySelector('input[data-tid="prejoin-display-name-input"], input[placeholder*="name" i], input[id*="username"], input[name*="username"]')) return true;
+                        // If we see the join button already, then UI is "ready" (maybe name skipped)
+                        const btns = Array.from(doc.querySelectorAll('button'));
+                        if (btns.some(b => b.innerText.toLowerCase().includes('join now'))) return true;
+
                         const iframes = doc.querySelectorAll('iframe');
                         for (const f of iframes) {
                             try { if (f.contentDocument && check(f.contentDocument)) return true; } catch (e) { }
@@ -371,9 +446,7 @@ const pid = process.pid;
                     };
                     return check(document);
                 });
-            } catch (e) {
-                // Ignore navigation errors
-            }
+            } catch (e) { }
             if (uiReady) break;
             await new Promise(r => setTimeout(r, 3000));
         }
@@ -495,7 +568,14 @@ const pid = process.pid;
                         const j = btns.find(b => {
                             const t = (b.innerText || '').toLowerCase();
                             const lid = (b.getAttribute('data-tid') || '').toLowerCase();
-                            return t.includes('join now') || t === 'join' || lid.includes('prejoin-join');
+                            const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                            return t.includes('join now') ||
+                                t === 'join' ||
+                                t === 'join meeting' ||
+                                lid.includes('prejoin-join') ||
+                                lid.includes('join-button') ||
+                                aria.includes('join now') ||
+                                aria === 'join';
                         });
                         if (j) {
                             j.focus();
@@ -1361,221 +1441,161 @@ const pid = process.pid;
 
             sendIPC('heartbeat', {});
 
-            // 0. LOBBY-TO-MEETING TRANSITION DETECTION
-            // If bot was in lobby, check if it's been admitted to the meeting
-            if (finalState === 'IN_LOBBY') {
-                try {
-                    const nowInMeeting = await page.evaluate(() => {
-                        const hangup = document.querySelector('button[data-tid="call-hangup"]') ||
-                            document.querySelector('button[data-tid="hangup-button"]');
-                        const leaveBtn = Array.from(document.querySelectorAll('button')).some(b => {
-                            const aria = (b.getAttribute('aria-label') || '').toLowerCase();
-                            return aria.includes('leave') || aria.includes('hang up');
-                        });
-                        const toolbar = document.querySelector('[data-tid="calling-roster"]') ||
-                            document.querySelector('.meeting-action-bar') ||
-                            document.querySelector('[aria-label="Meeting controls"]') ||
-                            document.querySelector('[data-tid="calling-header"]');
-                        // Also check that lobby text is GONE
-                        const lobbyGone = !document.body.innerText.includes('will let you in') &&
-                            !document.body.innerText.includes('waiting to be admitted');
-                        return !!(hangup || leaveBtn || toolbar) && lobbyGone;
-                    });
-                    if (nowInMeeting) {
-                        console.log('🟢 LOBBY → IN_MEETING transition detected! Bot has been admitted.');
-                        finalState = 'IN_MEETING';
-                        sendIPC('status', 'IN_MEETING');
-
-                        // Re-hook audio streams after admission (new streams appear)
-                        try {
-                            await page.evaluate(() => {
-                                console.log('[EAR] Re-scanning for audio streams after lobby admission...');
-                                const getAllElements = (doc) => {
-                                    let els = [...doc.querySelectorAll('audio'), ...doc.querySelectorAll('video')];
-                                    doc.querySelectorAll('iframe').forEach(iframe => {
-                                        try { if (iframe.contentDocument) els = [...els, ...getAllElements(iframe.contentDocument)]; } catch (e) { }
-                                    });
-                                    return els;
-                                };
-                                const ctx = window.__earAudioContext;
-                                const mixer = window.__earMixer;
-                                if (!ctx || !mixer) { console.log('[EAR] No AudioContext/mixer to rehook'); return; }
-                                const elements = getAllElements(document);
-                                let rehookCount = 0;
-                                elements.forEach(el => {
-                                    const stream = el.srcObject || (el.captureStream ? el.captureStream() : null);
-                                    if (stream && stream.getAudioTracks().length > 0 && !el.dataset.captured) {
-                                        try {
-                                            el.dataset.captured = 'true';
-                                            el.muted = false;
-                                            el.volume = 1.0;
-                                            const source = ctx.createMediaStreamSource(stream);
-                                            source.connect(mixer);
-                                            rehookCount++;
-                                            console.log(`[EAR] Re-hooked participant stream: ${stream.id}`);
-                                        } catch (e) { }
-                                    }
-                                });
-                                console.log(`[EAR] Re-hooked ${rehookCount} new audio streams after admission`);
+            try {
+                // 0. LOBBY-TO-MEETING TRANSITION DETECTION
+                if (finalState === 'IN_LOBBY') {
+                    try {
+                        const nowInMeeting = await page.evaluate(() => {
+                            const hangup = document.querySelector('button[data-tid="call-hangup"]') ||
+                                document.querySelector('button[data-tid="hangup-button"]');
+                            const leaveBtn = Array.from(document.querySelectorAll('button')).some(b => {
+                                const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+                                return aria.includes('leave') || aria.includes('hang up');
                             });
-                        } catch (e) { console.log('⚠️ Audio re-hook failed: ' + e.message); }
-                    }
-                } catch (e) { }
-            }
+                            const toolbar = document.querySelector('[data-tid="calling-roster"]') ||
+                                document.querySelector('.meeting-action-bar') ||
+                                document.querySelector('[aria-label="Meeting controls"]') ||
+                                document.querySelector('[data-tid="calling-header"]');
+                            const lobbyGone = !document.body.innerText.includes('will let you in') &&
+                                !document.body.innerText.includes('waiting to be admitted');
+                            return !!(hangup || leaveBtn || toolbar) && lobbyGone;
+                        });
 
-            // 1. SMART END DETECTION (only check once confirmed in meeting)
-            if (finalState === 'IN_MEETING') {
-                try {
+                        if (nowInMeeting) {
+                            console.log('🟢 LOBBY → IN_MEETING transition detected! Bot has been admitted.');
+                            finalState = 'IN_MEETING';
+                            sendIPC('status', 'IN_MEETING');
+
+                            // Re-hook audio streams after admission
+                            try {
+                                await page.evaluate(() => {
+                                    console.log('[EAR] Re-scanning for audio streams after lobby admission...');
+                                    const getAllElements = (doc) => {
+                                        let els = [...doc.querySelectorAll('audio'), ...doc.querySelectorAll('video')];
+                                        doc.querySelectorAll('iframe').forEach(iframe => {
+                                            try { if (iframe.contentDocument) els = [...els, ...getAllElements(iframe.contentDocument)]; } catch (e) { }
+                                        });
+                                        return els;
+                                    };
+                                    const ctx = window.__earAudioContext;
+                                    const mixer = window.__earMixer;
+                                    if (!ctx || !mixer) return;
+                                    const elements = getAllElements(document);
+                                    elements.forEach(el => {
+                                        const stream = el.srcObject || (el.captureStream ? el.captureStream() : null);
+                                        if (stream && stream.getAudioTracks().length > 0 && !el.dataset.captured) {
+                                            try {
+                                                el.dataset.captured = 'true';
+                                                el.muted = false;
+                                                el.volume = 1.0;
+                                                const source = ctx.createMediaStreamSource(stream);
+                                                source.connect(mixer);
+                                            } catch (e) { }
+                                        }
+                                    });
+                                });
+                            } catch (e) { }
+                        }
+                    } catch (e) { }
+                }
+
+                // 1. STATUS & SOLO DETECTION
+                if (finalState === 'IN_MEETING') {
                     const status = await page.evaluate(() => {
-                        const endedText = document.body.innerText.includes('Call ended') ||
-                            document.body.innerText.includes('was removed') ||
-                            document.body.innerText.includes('You were removed');
+                        const txt = document.body.innerText;
+                        const ended = txt.includes('Call ended') || txt.includes('was removed') || txt.includes('You were removed');
                         const rejoinBtn = document.querySelector('button[aria-label*="rejoin" i]');
 
-                        if (endedText || rejoinBtn) return { ended: true };
+                        if (ended || rejoinBtn) return { ended: true };
 
-                        // Solo detection: count participants
                         const scanDoc = (doc) => {
                             let count = doc.querySelectorAll('[data-tid*="video-tile"], [data-tid*="roster-participant"]').length;
-                            // Check 'People' label/button if visible
                             const peopleBtn = doc.querySelector('button[aria-label*="people" i], button[aria-label*="participants" i]');
                             if (peopleBtn) {
-                                const label = peopleBtn.ariaLabel || '';
-                                const match = label.match(/\((\d+)\)/) || label.match(/(\d+)/);
+                                const match = (peopleBtn.ariaLabel || '').match(/\((\d+)\)/);
                                 if (match) count = Math.max(count, parseInt(match[1]));
                             }
-                            // Recurse
                             doc.querySelectorAll('iframe').forEach(f => {
                                 try { if (f.contentDocument) count = Math.max(count, scanDoc(f.contentDocument)); } catch (e) { }
                             });
                             return count;
                         };
-                        const participantCount = scanDoc(document);
-                        return { ended: false, participants: participantCount };
-                    });
+                        return { ended: false, participants: scanDoc(document) };
+                    }).catch(() => ({ ended: false, participants: 2 })); // Fallback to safe count
 
                     if (status.ended) {
-                        console.log('🚩 Meeting end confirmed via UI signals.');
+                        log('🚩 Meeting end confirmed via UI signals.');
                         meetingEnded = true;
                         return;
                     }
 
-                    // Ghost Meeting Detection: Leave if alone for 5 minutes
-                    // Each heartbeat tick is ~30s
                     if (status.participants <= 1) {
                         soloTicks++;
-                        if (soloTicks >= 10) { // 10 * 30s = 5 mins
-                            console.log('👻 Ghost Meeting Detected: Bot is alone for 5+ mins. Leaving...');
+                        if (soloTicks % 2 === 0) log(`⚠️ Bot is alone (${soloTicks}/10)...`);
+                        if (soloTicks >= 10) {
+                            log('🛑 GHOST MEETING DETECTED. Exiting...');
                             meetingEnded = true;
                             return;
                         }
                     } else {
                         soloTicks = 0;
                     }
-                } catch (e) {
-                    console.log('⚠️ Status check failed: ' + e.message);
                 }
-            }
 
-            // SAFETY SWEEP: Ensure mic/cam didn't accidentally turn on
-            try {
+                // 2. SAFETY SWEEP & POP-UP BUSTER
                 await page.evaluate(() => {
-                    const toolbarButtons = Array.from(document.querySelectorAll('button[aria-label*="camera" i], button[aria-label*="mic" i], button[aria-label*="mute" i]'));
-                    toolbarButtons.forEach(btn => {
+                    // Mute check
+                    const buttons = Array.from(document.querySelectorAll('button[aria-label*="camera" i], button[aria-label*="mic" i], button[aria-label*="mute" i]'));
+                    buttons.forEach(btn => {
                         const label = (btn.ariaLabel || '').toLowerCase();
-                        // Only click if device is genuinely ON (avoid false positive on 'Unmute')
-                        const isOn = btn.ariaPressed === 'true' || label.includes('turn off');
-                        const isMuteBtn = label.includes('mute') && !label.includes('unmute');
-                        if ((isOn || isMuteBtn) && !label.includes('turn on') && !label.includes('unmute')) {
-                            btn.click();
-                        }
+                        const isMuted = btn.ariaPressed === 'false' || label.includes('turn on') || label.includes('unmute');
+                        if (!isMuted && !label.includes('mute')) btn.click();
                     });
 
-                    // POP-UP BUSTER: Click past blocking overlays that appear mid-meeting
-                    const buttons = Array.from(document.querySelectorAll('button'));
-                    const dismissBtn = buttons.find(b => {
-                        const txt = b.innerText.toLowerCase();
-                        return txt.includes('dismiss') || txt.includes('got it') || txt.includes('not now') || txt.includes('remind me later') || txt.includes('ok');
+                    // Popup buster
+                    const dismissBtn = Array.from(document.querySelectorAll('button')).find(b => {
+                        const t = b.innerText.toLowerCase();
+                        return t.includes('dismiss') || t.includes('got it') || t.includes('not now') || t.includes('ok');
                     });
-                    if (dismissBtn) {
-                        dismissBtn.click();
-                        console.log('[POPUP] Dismissed an unexpected overlay');
-                    }
-                });
-            } catch (e) { }
+                    if (dismissBtn) dismissBtn.click();
+                }).catch(() => { });
 
-            // PERIODIC WEBRTC TRACK SCAN (every cycle)
-            // Teams dynamically adds/removes audio tracks as participants join/leave/unmute
-            try {
-                const newTracks = await page.evaluate(() => {
-                    if (window.__scanRemoteTracks) return window.__scanRemoteTracks();
-                    return 0;
-                });
-                if (newTracks > 0) {
-                    log(`🎧 Re-hooked ${newTracks} new audio track(s) via WebRTC scan`);
-                }
-            } catch (e) { }
+                // 3. WEBRTC TRACK SCAN
+                try {
+                    const tracksAdded = await page.evaluate(() => window.__scanRemoteTracks ? window.__scanRemoteTracks() : 0);
+                    if (tracksAdded > 0) log(`🎧 Re-hooked ${tracksAdded} new tracks`);
+                } catch (e) { }
 
-            // GHOST MEETING CHECK (Solo Participant Detection)
-            try {
-                const participantCount = await page.evaluate(() => {
-                    // Look for "In this meeting (N)" or similar counters
-                    const text = document.body.innerText;
-                    // Try to find "In this meeting (1)" or just "1" in roster
-                    // Just check aria-labels on roster items
-                    const rosterItems = document.querySelectorAll('[data-tid="participant-item"]');
-                    if (rosterItems.length > 0) return rosterItems.length;
-
-                    if (text.includes("Wait for others to join")) return 1;
-                    if (text.includes("When the meeting starts")) return 1;
-
-                    return 2; // Default to safe "2" if unsure to avoid premature exit
-                });
-
-                if (participantCount <= 1) {
-                    soloTicks++;
-                    if (soloTicks % 3 === 0) log(`⚠️ Bot is alone in meeting (Tick ${soloTicks}/3)...`);
-
-                    if (soloTicks >= 3) { // ~30 seconds of being alone
-                        log('🛑 GHOST MEETING DETECTED (Alone for >30s). Exiting...');
-                        meetingEnded = true;
-                    }
-                } else {
-                    soloTicks = 0; // Reset if others are found
-                }
-
-                // Check explicitly for "Meeting ended" screen
-                const meetingEndedText = await page.evaluate(() => {
+                // 4. MEETING END SCREEN CHECK
+                const hasEndScreen = await page.evaluate(() => {
                     const txt = document.body.innerText;
-                    return txt.includes("Meeting ended") || txt.includes("The meeting has ended") || txt.includes("You'll be the only one here");
-                });
-                if (meetingEndedText) {
-                    log('🛑 "Meeting Ended" screen detected. Exiting...');
+                    return txt.includes("Meeting ended") || txt.includes("The meeting has ended");
+                }).catch(() => false);
+                if (hasEndScreen) {
+                    log('🛑 End screen detected.');
                     meetingEnded = true;
                 }
 
-            } catch (e) { }
-
-            // SPEAKER DETECTION: Harvested by in-page poller every 2s
-            // Sync timeline back to Node on each heartbeat
-            try {
-                const timeline = await page.evaluate(() => window.__speakerTimeline || []);
+                // 5. SPEAKER SYNC
+                const timeline = await page.evaluate(() => window.__speakerTimeline || []).catch(() => []);
                 if (timeline.length > speakerTimeline.length) {
-                    // New events detected — sync them
                     for (let i = speakerTimeline.length; i < timeline.length; i++) {
-                        speakerTimeline.push(timeline[i]);
-                        if (timeline[i].name !== lastDetectedSpeaker) {
-                            lastDetectedSpeaker = timeline[i].name;
+                        const ev = timeline[i];
+                        speakerTimeline.push(ev);
+                        if (ev.name !== lastDetectedSpeaker) {
+                            lastDetectedSpeaker = ev.name;
                             sendIPC('speaker-change', {
-                                name: timeline[i].name,
-                                timestamp: recordingAnchorTime + timeline[i].startMs,
-                                startMs: timeline[i].startMs
+                                name: ev.name,
+                                timestamp: recordingAnchorTime + ev.startMs,
+                                startMs: ev.startMs
                             });
                         }
                     }
                 }
-            } catch (e) { /* Speaker sync is best-effort */ }
 
+            } catch (err) {
+                log(`⚠️ Heartbeat Error: ${err.message}`);
+            }
         }, 10000); // Heartbeat every 10s
 
         // --- STEP 6: WAIT FOR MEETING END ---

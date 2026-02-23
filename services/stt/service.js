@@ -18,38 +18,44 @@ import path from 'path';
  * This filter runs on BOTH cloud and local results.
  */
 const HALLUCINATION_PHRASES = new Set([
-    'thanks for watching',
-    'thank you for watching', 'subscribe', 'like and subscribe',
-    'bye', 'goodbye', 'see you next time', 'the end',
+    'thanks for watching', 'thank you for watching', 'subscribe',
+    'like and subscribe', 'see you next time', 'the end',
     'music', 'applause', 'laughter', 'silence',
-    'thanks for listening', 'thank you very much',
-    'please subscribe', 'you you', 'you you you',
-    'subtitles', 'captioned by', 'copyright', 'all rights reserved',
-    'no audio'
+    'meeting transcript', 'this is a meeting transcript', 'no audio',
+    "i'm going to ask you a question"
+]);
+
+const SINGLE_WORD_HALLUCINATIONS = new Set([
+    'you', 'thanks', 'bye', 'goodbye', 'hello', 'you.'
 ]);
 
 function isHallucination(text) {
     if (!text || typeof text !== 'string') return true;
-
-    // Remove ALL common hallucination noise (punctuation, trailing dots, etc)
     const clean = text.replace(/[.,!?;:'"()\[\]{}]/g, '').trim().toLowerCase();
-
-    // If it's too short after cleaning, it's noise
     if (!clean || clean.length < 2) return true;
 
-    // Check strict match against known hallucinations
+    // 1. Exact match for risky single words
+    if (SINGLE_WORD_HALLUCINATIONS.has(clean)) return true;
+
+    // 2. Phrase substrings
     for (const phrase of HALLUCINATION_PHRASES) {
         if (clean.includes(phrase)) return true;
     }
 
-    // Check for repetitive words (e.g., "you you you you")
     const words = clean.split(/\s+/);
+    // 3. Repetitive single-word noise (e.g., "you you you")
+    if (words.length >= 2) {
+        const uniqueWords = new Set(words);
+        if (uniqueWords.size === 1 && SINGLE_WORD_HALLUCINATIONS.has(words[0])) return true;
+    }
+
+    // 4. High overlap/repetition (stuttering hallucinations)
     if (words.length >= 3) {
         const uniqueWords = new Set(words);
-        // If 75%+ of words are the same word, it's repetitive
-        if (uniqueWords.size === 1) return true;
-        const mostCommonCount = Math.max(...[...uniqueWords].map(w => words.filter(x => x === w).length));
-        if (mostCommonCount / words.length >= 0.75) return true;
+        for (const w of uniqueWords) {
+            const count = words.filter(x => x === w).length;
+            if (count / words.length >= 0.8) return true;
+        }
     }
 
     return false;
@@ -70,7 +76,7 @@ function filterSegments(segments) {
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const STT_SERVICE_URL = process.env.STT_SERVICE_URL || 'http://localhost:4545';
+const STT_SERVICE_URL = process.env.STT_SERVICE_URL || 'http://127.0.0.1:4545';
 const rawGroqKeys = process.env.GROQ_API_KEYS || process.env.GROQ_API_KEY || '';
 const GROQ_API_KEYS = rawGroqKeys.split(',').map(k => k.trim()).filter(Boolean);
 let currentApiKeyIndex = 0;

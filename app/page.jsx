@@ -117,75 +117,85 @@ const LogViewer = ({ onClose, logId, contained = false }) => {
 // LIVE TRANSCRIPT COMPONENT
 const LiveTranscript = ({ vttContent }) => {
     const endRef = useRef(null);
+    const [autoScroll, setAutoScroll] = useState(true);
+    const containerRef = useRef(null);
 
-    // Auto-scroll logic
+    // Auto-scroll logic with manual override detection
+    const handleScroll = () => {
+        if (!containerRef.current) return;
+        const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+        const isNearBottom = scrollHeight - scrollTop - clientHeight < 50;
+        setAutoScroll(isNearBottom);
+    };
+
     useEffect(() => {
-        endRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [vttContent]);
+        if (autoScroll && endRef.current) {
+            endRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [vttContent, autoScroll]);
 
-    // Check if vttContent is actually a JSON array (from DB or Live Bot)
-    if (!vttContent || (Array.isArray(vttContent) && vttContent.length === 0)) {
-        return <div className="text-gray-500 italic p-4 text-center">Waiting for speech...</div>;
+    // Ensure we handle both empty strings and empty arrays properly
+    if (!vttContent || (Array.isArray(vttContent) && vttContent.length === 0) || (typeof vttContent === 'string' && vttContent.trim() === '')) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-gray-500 space-y-4">
+                <Spinner />
+                <p className="text-sm tracking-wide animate-pulse font-mono">Listening to conversation...</p>
+            </div>
+        );
     }
 
     const segments = [];
 
-    // If we have explicit segments passed via props (could be named differently in parent)
-    // In this case, vttContent might BE the array if passed from selectedBot.transcriptSegments
-
+    // Parse incoming data
     if (Array.isArray(vttContent)) {
         vttContent.forEach(item => {
-            // Support multiple property name variations (from DB or Live Bot)
             const startTime = item.start ?? item.start_time ?? item.time;
             const speaker = item.speaker ?? item.speaker_id ?? 'Unknown';
 
             let displayTime = '00:00:00';
             if (typeof startTime === 'number') {
-                // If it's a Unix timestamp, format it
                 if (startTime > 1000000) {
-                    displayTime = new Date(startTime).toLocaleTimeString('en-US', { hour12: false });
+                    displayTime = new Date(startTime).toLocaleTimeString('en-US', { hour12: false, hour: 'numeric', minute: '2-digit' });
                 } else {
-                    // If it's seconds from start
                     displayTime = new Date(startTime * 1000).toISOString().substr(11, 8);
                 }
             } else if (typeof startTime === 'string') {
                 displayTime = startTime;
             }
 
-            segments.push({
-                time: displayTime,
-                speaker: speaker,
-                text: item.text
-            });
-        });
-    } else if (typeof vttContent === 'string') {
-        // Parse VTT String
-        const lines = vttContent.split('\n');
-        let currentSegment = null;
-        lines.forEach(line => {
-            if (line.includes('-->')) {
-                currentSegment = { time: line.split('-->')[0].trim() };
-            } else if (line.startsWith('<v')) {
-                const match = line.match(/<v (.*?)>(.*)<\/v>/);
-                if (match && currentSegment) {
-                    currentSegment.speaker = match[1];
-                    currentSegment.text = match[2];
-                    segments.push(currentSegment);
-                    currentSegment = null;
-                }
-            }
+            segments.push({ time: displayTime, speaker, text: item.text });
         });
     }
 
+    // Combine adjacent segments from the SAME speaker for cleaner UX
+    const groupedSegments = [];
+    let currentGroup = null;
+
+    segments.forEach((seg) => {
+        // Clean up speaker name
+        const cleanSpeaker = seg.speaker.replace('Meeting Participant', 'Participant').trim();
+
+        if (currentGroup && currentGroup.speaker === cleanSpeaker) {
+            // Check if time gap is huge (optional, for later if needed)
+            currentGroup.messages.push({ time: seg.time, text: seg.text });
+        } else {
+            if (currentGroup) groupedSegments.push(currentGroup);
+            currentGroup = {
+                speaker: cleanSpeaker,
+                messages: [{ time: seg.time, text: seg.text }]
+            };
+        }
+    });
+    if (currentGroup) groupedSegments.push(currentGroup);
+
     const getSpeakerColor = (name) => {
         const colors = [
-            'text-blue-400 bg-blue-400/10 border-blue-400/30',
-            'text-purple-400 bg-purple-400/10 border-purple-400/30',
-            'text-pink-400 bg-pink-400/10 border-pink-400/30',
-            'text-amber-400 bg-amber-400/10 border-amber-400/30',
-            'text-cyan-400 bg-cyan-400/10 border-cyan-400/30',
-            'text-emerald-400 bg-emerald-400/10 border-emerald-400/30',
-            'text-indigo-400 bg-indigo-400/10 border-indigo-400/30'
+            'bg-blue-500/10 text-blue-400 border-blue-500/20',
+            'bg-purple-500/10 text-purple-400 border-purple-500/20',
+            'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+            'bg-amber-500/10 text-amber-400 border-amber-500/20',
+            'bg-pink-500/10 text-pink-400 border-pink-500/20',
+            'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
         ];
         let hash = 0;
         for (let i = 0; i < (name || '').length; i++) {
@@ -195,27 +205,63 @@ const LiveTranscript = ({ vttContent }) => {
     };
 
     return (
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {segments.map((seg, i) => {
-                const colorClass = getSpeakerColor(seg.speaker);
+        <div
+            ref={containerRef}
+            onScroll={handleScroll}
+            className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-[#333] scrollbar-track-transparent"
+        >
+            {groupedSegments.map((group, groupIdx) => {
+                const colorTheme = getSpeakerColor(group.speaker);
+                const isBot = group.speaker?.toLowerCase().includes('bot');
+                const initialLetter = group.speaker?.charAt(0).toUpperCase() || '?';
+
                 return (
-                    <div key={i} className="flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border ${colorClass.split(' ').slice(0, 3).join(' ')}`}>
-                            {seg.speaker?.charAt(0) || '?'}
+                    <div key={groupIdx} className="flex gap-4 group animate-in slide-in-from-bottom-2 fade-in duration-300 relative border-b border-white/[0.04] pb-5 last:border-0 hover:bg-white/[0.02] p-2 -ml-2 rounded-xl transition-colors">
+                        {/* Avatar */}
+                        <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold border shadow-sm ${colorTheme}`}>
+                            {initialLetter}
                         </div>
-                        <div className="flex-1">
-                            <div className="flex items-baseline gap-2 mb-1">
-                                <span className={`font-bold text-sm ${colorClass.split(' ')[0]}`}>{seg.speaker}</span>
-                                <span className="text-[10px] text-gray-500 font-mono tracking-tighter">{seg.time}</span>
+
+                        {/* Message Content */}
+                        <div className="flex-1 min-w-0 flex flex-col items-start">
+                            {/* Header */}
+                            <div className="flex items-baseline gap-3 mb-1">
+                                <span className={`font-semibold text-sm tracking-wide ${colorTheme.split(' ')[1]}`}>
+                                    {group.speaker}
+                                </span>
+                                <span className="text-[11px] text-gray-500 font-mono">
+                                    {group.messages[0].time}
+                                </span>
+                                {isBot && (
+                                    <span className="text-[9px] bg-teams-primary/20 text-teams-primary px-1.5 py-0.5 rounded shadow-sm font-bold tracking-widest border border-teams-primary/10 uppercase">Bot</span>
+                                )}
                             </div>
-                            <p className="text-gray-200 text-sm leading-relaxed bg-white/5 p-3 rounded-tr-xl rounded-br-xl rounded-bl-xl border border-white/5">
-                                {seg.text}
-                            </p>
+
+                            {/* Text Content */}
+                            <div className="flex flex-col gap-1 w-full">
+                                {group.messages.map((msg, msgIdx) => (
+                                    <p key={msgIdx} className="text-gray-300 text-[14px] leading-relaxed">
+                                        {msg.text}
+                                    </p>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 );
             })}
-            <div ref={endRef} />
+
+            {/* Auto scroll padding / target */}
+            <div ref={endRef} className="h-4" />
+
+            {/* New Message Indicator (if user scrolled up) */}
+            {!autoScroll && (
+                <button
+                    onClick={() => { setAutoScroll(true); endRef.current?.scrollIntoView({ behavior: 'smooth' }); }}
+                    className="fixed bottom-6 right-6 bg-teams-primary text-white p-3 rounded-full shadow-xl hover:bg-teams-hover transition-all animate-bounce"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"></path></svg>
+                </button>
+            )}
         </div>
     );
 };
@@ -273,15 +319,18 @@ export default function MeetingAI() {
                 const bots = data.bots || [];
                 setActiveBots(bots);
 
-                // Sync selected bot with latest data (e.g., new transcript segments)
-                if (selectedBot) {
-                    const latest = bots.find(b => b.id === selectedBot.id);
-                    if (latest) {
-                        setSelectedBot(latest);
-                    } else {
-                        setSelectedBot(null);
+                // Sync selected bot with latest data
+                setSelectedBot(prevBot => {
+                    if (prevBot) {
+                        const latest = bots.find(b => b.id === prevBot.id);
+                        // If bot just ended, try to transition to archived view
+                        if (!latest && selectedBot) {
+                            setTimeout(loadMeetings, 1000); // Wait for final sync
+                        }
+                        return latest || null;
                     }
-                }
+                    return prevBot;
+                });
             }
         } catch (e) { console.error('Error loading active bots:', e); }
     }
@@ -427,25 +476,7 @@ export default function MeetingAI() {
 
     // --- AI FEATURES ---
 
-    async function getSummary() {
-        if (summary) return;
-        setStatus('Generating AI summary...');
-        try {
-            const res = await fetch(`/api/summary/${selectedMeeting.meetingId}`);
-            setSummary(await res.json());
-        } catch (e) { console.error(e); }
-        setStatus('');
-    }
-
-    async function getActions() {
-        if (actionItems) return;
-        setStatus('Extracting action items...');
-        try {
-            const res = await fetch(`/api/actions/${selectedMeeting.meetingId}`);
-            setActionItems(await res.json());
-        } catch (e) { console.error(e); }
-        setStatus('');
-    }
+    // --- AI FEATURES (Managed by handleMeetingSelect) ---
 
     async function sendChat() {
         if (!chatInput.trim()) return;
@@ -470,12 +501,34 @@ export default function MeetingAI() {
 
     const handleMeetingSelect = (m) => {
         setSelectedMeeting(m);
-        setSelectedBot(null); // Clear live bot selection
+        setSelectedBot(null);
         setView('overview');
         setChatMessages([]);
         setSummary(null);
         setActionItems(null);
+
+        // Proactive: Start fetching AI summaries in background if finalized
+        if (m.status === 'Finalized' || m.meetingId.startsWith('bot-')) {
+            getSummaryForMeeting(m.meetingId);
+            getActionsForMeeting(m.meetingId);
+        }
     };
+
+    async function getSummaryForMeeting(id) {
+        try {
+            const res = await fetch(`/api/summary/${id}`);
+            const data = await res.json();
+            setSummary(data);
+        } catch (e) { }
+    }
+
+    async function getActionsForMeeting(id) {
+        try {
+            const res = await fetch(`/api/actions/${id}`);
+            const data = await res.json();
+            setActionItems(data);
+        } catch (e) { }
+    }
 
     const handleBotSelect = (bot) => {
         setSelectedBot(bot);
@@ -485,11 +538,15 @@ export default function MeetingAI() {
 
     useEffect(() => {
         if (selectedMeeting) {
-            // Priority 1: Use transcript array if available (from MongoDB)
-            if (selectedMeeting.transcript && Array.isArray(selectedMeeting.transcript) && selectedMeeting.transcript.length > 0) {
+            // Priority 1: Use 'entries' array if available (New format from ingestBotTranscript)
+            if (selectedMeeting.entries && Array.isArray(selectedMeeting.entries) && selectedMeeting.entries.length > 0) {
+                setMeetingContent(selectedMeeting.entries);
+            }
+            // Priority 2: Use legacy 'transcript' array
+            else if (selectedMeeting.transcript && Array.isArray(selectedMeeting.transcript) && selectedMeeting.transcript.length > 0) {
                 setMeetingContent(selectedMeeting.transcript);
             }
-            // Priority 2: Use file path if available (legacy/fallback)
+            // Priority 3: Use file path if available (legacy/fallback)
             else if (selectedMeeting.path) {
                 fetch(selectedMeeting.path)
                     .then(r => r.text())
@@ -498,8 +555,6 @@ export default function MeetingAI() {
             } else {
                 setMeetingContent('');
             }
-        } else {
-            setMeetingContent('');
         }
     }, [selectedMeeting]);
 
@@ -576,7 +631,7 @@ export default function MeetingAI() {
 
             <div className="flex flex-1 overflow-hidden">
                 {/* Sidebar (Full Left) */}
-                <div className="w-72 bg-teams-surface flex-shrink-0 flex flex-col border-r border-teams-border">
+                <div className="w-72 bg-teams-surface/40 backdrop-blur-xl flex-shrink-0 flex flex-col border-r border-teams-border shadow-2xl z-20">
 
                     {/* --- NEW BOT ACTIONS SECTION --- */}
                     <div className="p-4 border-b border-teams-border bg-black/10">
@@ -712,13 +767,13 @@ export default function MeetingAI() {
                                 const isRecent = createdDate > new Date(Date.now() - 24 * 60 * 60 * 1000);
                                 return (
                                     <div
-                                        key={m.filename}
-                                        className={`group relative p-3 rounded-md cursor-pointer border-l-4 ${selectedMeeting?.filename === m.filename ? 'bg-black/20 border-teams-primary' : 'border-transparent hover:bg-white/5'}`}
+                                        key={m.filename || m.meetingId}
+                                        className={`group relative p-4 rounded-xl cursor-pointer border transition-all duration-300 ${selectedMeeting?.meetingId === m.meetingId ? 'bg-teams-primary/10 border-teams-primary/50 shadow-lg shadow-teams-primary/5' : 'bg-white/5 border-transparent hover:bg-white/10'}`}
                                         onClick={() => handleMeetingSelect(m)}
                                     >
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <div className="text-teams-primary">
-                                                {m.meetingId === 'Manual Recording' ? (
+                                        <div className="flex items-center gap-3 mb-2">
+                                            <div className={`p-2 rounded-lg ${m.meetingId.startsWith('bot-') ? 'bg-cyan-500/10 text-cyan-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                                                {m.meetingId.startsWith('file-') ? (
                                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                                     </svg>
@@ -728,16 +783,28 @@ export default function MeetingAI() {
                                                     </svg>
                                                 )}
                                             </div>
-                                            <h4 className="font-semibold truncate text-sm text-teams-text-primary">
-                                                {m.meetingId === 'Manual Recording' ? 'Manual Meeting' : `${m.meetingId}`}
-                                            </h4>
-                                            {isRecent && <span className="text-[9px] bg-teams-primary/20 text-teams-primary px-1 rounded-sm font-bold border border-teams-primary/30">NEW</span>}
+                                            <div className="flex-1 min-w-0">
+                                                <h4 className="font-bold truncate text-sm text-white group-hover:text-teams-primary transition-colors">
+                                                    {m.subject || m.meetingId}
+                                                </h4>
+                                                <div className="flex items-center gap-2 mt-0.5">
+                                                    <span className="text-[10px] text-gray-500 font-medium">
+                                                        {new Date(m.importedAt || m.created).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                                    </span>
+                                                    {isRecent && <span className="text-[8px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full font-black uppercase tracking-widest border border-green-500/20">New</span>}
+                                                </div>
+                                            </div>
                                         </div>
-                                        <p className="text-xs text-teams-text-secondary flex justify-between">
-                                            <span>{createdDate.toLocaleDateString()} {createdDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                            <span className="opacity-70">{(m.size / 1024).toFixed(1)} KB</span>
-                                        </p>
 
+                                        <div className="flex items-center justify-between text-[10px] text-gray-400 opacity-60 group-hover:opacity-100 transition-opacity">
+                                            <span className="flex items-center gap-1">
+                                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                                {Math.round(m.durationSeconds / 60) || 0}m
+                                            </span>
+                                            <span className="bg-white/10 px-1.5 py-0.5 rounded italic">
+                                                {m.source?.split(' ')[0] || 'Manual'}
+                                            </span>
+                                        </div>
                                     </div>
                                 );
                             })}
@@ -764,24 +831,42 @@ export default function MeetingAI() {
                                 {selectedBot && <div className="absolute top-0 left-0 w-full h-0.5 premium-gradient-animate opacity-50" />}
 
                                 <div className="flex justify-between items-start">
-                                    <div>
+                                    <div className="flex-1">
                                         <div className="flex items-center gap-2 mb-1">
-                                            <h2 className="text-2xl font-black tracking-tight text-white">
-                                                {selectedBot ? (selectedBot.metadata?.subject || 'Live Recording') : selectedMeeting.meetingId}
+                                            <h2 className="text-2xl font-black tracking-tight text-white leading-tight">
+                                                {selectedBot ? (selectedBot.metadata?.subject || 'Live Recording') : (selectedMeeting.subject || selectedMeeting.meetingId)}
                                             </h2>
                                             {selectedBot ? (
-                                                <span className="px-2 py-0.5 rounded bg-red-500/20 text-red-400 text-[10px] font-black uppercase tracking-widest border border-red-500/30 animate-pulse">
+                                                <span className="px-2 py-0.5 rounded bg-red-500/10 text-red-500 text-[10px] font-black uppercase tracking-widest border border-red-500/20 animate-pulse">
                                                     Live
                                                 </span>
                                             ) : (
-                                                <span className="px-2 py-0.5 rounded bg-teams-primary/20 text-teams-primary text-[10px] font-bold uppercase tracking-widest border border-teams-primary/30">
-                                                    Archived
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest border ${selectedMeeting.status === 'Finalized' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-teams-primary/10 text-teams-primary border-teams-primary/20'}`}>
+                                                    {selectedMeeting.status || 'Archived'}
                                                 </span>
                                             )}
                                         </div>
-                                        <p className="text-xs text-teams-text-secondary">
-                                            {selectedBot ? `Session ID: ${selectedBot.id.substring(0, 8)}...` : `Source: ${selectedMeeting.source} | Duration: ${selectedMeeting.durationSeconds || 'Unknown'}s`}
-                                        </p>
+                                        <div className="flex items-center gap-3 text-[10px] text-teams-text-secondary font-medium uppercase tracking-wide">
+                                            <span>Session: {selectedBot ? selectedBot.id.substring(0, 8) : selectedMeeting.meetingId}</span>
+                                            {!selectedBot && (
+                                                <>
+                                                    <span className="w-1 h-1 rounded-full bg-white/20"></span>
+                                                    <span>{Math.round(selectedMeeting.durationSeconds / 60) || 0} Minutes</span>
+                                                </>
+                                            )}
+                                        </div>
+
+                                        {/* Participants Pills */}
+                                        {(selectedBot?.participants || selectedMeeting?.participants)?.length > 0 && (
+                                            <div className="flex flex-wrap gap-1.5 mt-3">
+                                                {(selectedBot?.participants || selectedMeeting?.participants).map(p => (
+                                                    <span key={p} className="bg-white/5 border border-white/10 px-2 py-0.5 rounded text-[9px] font-bold text-gray-400 flex items-center gap-1">
+                                                        <span className="w-1 h-1 rounded-full bg-teams-primary"></span>
+                                                        {p}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
 
                                     {selectedBot && (
@@ -809,7 +894,7 @@ export default function MeetingAI() {
                                             <button
                                                 key={tab}
                                                 disabled={isLocked}
-                                                onClick={() => { setView(tab); if (tab === 'summary') getSummary(); if (tab === 'actions') getActions(); }}
+                                                onClick={() => { setView(tab); }}
                                                 className={`py-2 text-sm font-semibold border-b-2 transition-all relative group
                                                     ${view === tab ? 'text-teams-primary border-teams-primary' : 'text-teams-text-secondary border-transparent hover:text-white'}
                                                     ${isLocked ? 'opacity-30 cursor-not-allowed' : ''}`}
@@ -869,10 +954,23 @@ export default function MeetingAI() {
                                             </div>
                                         ) : view === 'summary' ? (
                                             summary.error ? <p className="text-red-400">Error: {summary.error}</p> :
-                                                <div className="prose prose-invert max-w-none">
-                                                    <div className="bg-white/5 p-6 rounded-2xl border border-white/10 leading-loose text-gray-200"
-                                                        dangerouslySetInnerHTML={{ __html: summary.summary.replace(/\n/g, '<br/>') }}
-                                                    />
+                                                <div className="animate-in fade-in slide-in-from-top-4 duration-700">
+                                                    <div className="flex items-center gap-3 mb-8">
+                                                        <div className="p-3 bg-teams-primary/10 rounded-2xl text-teams-primary">
+                                                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                            </svg>
+                                                        </div>
+                                                        <div>
+                                                            <h3 className="text-2xl font-black text-white">Meeting Insights</h3>
+                                                            <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">AI Generated Summary</p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="prose prose-invert max-w-none">
+                                                        <div className="bg-[#2D2D2D]/40 backdrop-blur-md p-8 rounded-3xl border border-white/10 leading-relaxed text-gray-200 shadow-2xl space-y-4"
+                                                            dangerouslySetInnerHTML={{ __html: summary.summary.replace(/\n\n/g, '<br/><br/>').replace(/\n/g, '<br/>') }}
+                                                        />
+                                                    </div>
                                                 </div>
                                         ) : (
                                             actionItems.error ? <p className="text-red-400">Error: {actionItems.error}</p> : (

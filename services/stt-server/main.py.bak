@@ -104,43 +104,28 @@ def is_hallucination(text: str) -> bool:
     if not text or len(text) < 2:
         return True
     
-    # Phrases that indicate hallucinations if they match EXACTLY or as SUBSTRINGS
-    PHRASE_HALLUCINATIONS = {
+    # Shared Hallucination Set - RELAXED
+    HARD_HALLUCINATIONS = {
         'thanks for watching', 'thank you for watching', 'subscribe', 
-        'like and subscribe', 'see you next time', 
+        'like and subscribe', 'bye', 'goodbye', 'see you next time', 
         'the end', 'music', 'applause', 'laughter', 'silence',
-        'meeting transcript', 'this is a meeting transcript', 'no audio',
-        "i'm going to ask you a question"
-    }
-
-    # Single words that are almost always hallucinations when appearing alone
-    SINGLE_WORD_HALLUCINATIONS = {
-        'you', 'thanks', 'bye', 'goodbye', 'hello', 'you.'
+        'thank you', 'thanks', 'you', 'you.', 'thank you.',
+        'thank you very much', 'meeting transcript', 'this is a meeting transcript', 'no audio'
     }
 
     clean = "".join(c for c in text if c.isalnum() or c.isspace()).lower().strip()
     if not clean:
         return True
     
-    # 1. Check exact matches for risky single words
-    if clean in SINGLE_WORD_HALLUCINATIONS:
-        return True
-        
-    # 2. Check phrase substrings
-    for phrase in PHRASE_HALLUCINATIONS:
+    for phrase in HARD_HALLUCINATIONS:
         if phrase in clean:
             return True
 
     words = clean.split()
-    # 3. Check for repetitive single-word noise (e.g., "you you you")
-    if len(words) >= 2:
-        unique_words = set(words)
-        if len(unique_words) == 1 and words[0] in SINGLE_WORD_HALLUCINATIONS:
-            return True
-            
-    # 4. High overlap/repetition (stuttering hallucinations)
     if len(words) >= 3:
         unique_words = set(words)
+        if len(unique_words) == 1:
+            return True
         for w in unique_words:
             if words.count(w) / len(words) >= 0.8:
                 return True
@@ -151,7 +136,7 @@ def is_hallucination(text: str) -> bool:
 session_stats = {}
 
 @app.post("/transcribe", response_model=TranscriptionResponse)
-def transcribe(
+async def transcribe(
     file: UploadFile = File(...), 
     meeting_id: Optional[str] = Form(None),
     speaker_names: Optional[str] = Form(None)
@@ -174,38 +159,36 @@ def transcribe(
     os.makedirs(storage_dir, exist_ok=True)
 
     # Save file temporarily
-    filename = f"{meeting_id}_{int(time.time())}_{batch_num}.webm"
+    filename = f"{meeting_id}_{int(time.time())}.webm"
     file_path = os.path.join(storage_dir, filename)
-    normalized_path = None
+    
+    with open(file_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+    
+    # Validating file size
+    file_size = os.path.getsize(file_path)
+    if file_size == 0:
+        print(f"⚠️ [{meeting_id}] Received empty file. Skipping.")
+        return TranscriptionResponse(
+            meeting_id=meeting_id,
+            status="skipped",
+            transcript=[],
+            text="",
+            duration=0.0,
+            audio_path=file_path
+        )
+
+    # FFmpeg Conversion (No Loudnorm)
+    normalized_path = convert_and_normalize(file_path)
+    if not normalized_path:
+        print(f"⚠️ [{meeting_id}] FFmpeg conversion failed. Attempting to use original...")
+        normalized_path = file_path
     
     try:
-        with open(file_path, "wb") as f:
-            # Sync read since we are in a 'def' thread-safe function
-            f.write(file.file.read())
-        
-        # Validating file size
-        file_size = os.path.getsize(file_path)
-        if file_size == 0:
-            print(f"⚠️ [{meeting_id}] Received empty file. Skipping.")
-            return TranscriptionResponse(
-                meeting_id=meeting_id,
-                status="skipped",
-                transcript=[],
-                text="",
-                duration=0.0,
-                audio_path=file_path
-            )
-
-        # FFmpeg Conversion (No Loudnorm)
-        normalized_path = convert_and_normalize(file_path)
-        if not normalized_path:
-            print(f"⚠️ [{meeting_id}] FFmpeg conversion failed. Attempting to use original...")
-            normalized_path = file_path
-        
         print(f"🎙️ [{meeting_id}] Processing Batch #{batch_num}...", end="\r")
         
         # Transcribe with faster-whisper WITH VAD (Speed Optimized)
-        # This is now running in a thread pool, so health checks won't block!
         segments, info = model.transcribe(
             normalized_path, 
             beam_size=1, # Fast!
@@ -217,7 +200,18 @@ def transcribe(
         )
         
         segments_list = list(segments)
-        # Removed fallback logic that transcribes pure silence and causes extreme hallucination
+        
+        # FALLBACK: If VAD returns nothing, try without VAD (Only if audio is significant)
+        if not segments_list:
+             segments_fallback, info_fallback = model.transcribe(
+                normalized_path, 
+                beam_size=1, 
+                vad_filter=False, 
+                initial_prompt="Meeting transcript.",
+                condition_on_previous_text=False,
+                temperature=0.0
+            )
+             segments_list = list(segments_fallback)
 
         transcript_entries = []
         snippet = ""
@@ -237,6 +231,7 @@ def transcribe(
 
         end_ts = time.time()
         process_time = end_ts - start_ts
+        # Use info from the first pass usually, but fallback info is fine too
         audio_dur = info.duration
         
         # Update Stats
@@ -260,6 +255,7 @@ def transcribe(
         
     except Exception as e:
         print(f"❌ [{meeting_id}] Transcribe Error: {str(e)}")
+        # Return a valid response indicating error, so client doesn't crash
         return TranscriptionResponse(
             meeting_id=meeting_id,
             status="error",
@@ -268,15 +264,6 @@ def transcribe(
             duration=0.0,
             audio_path=filename
         )
-    finally:
-        # CLEANUP: Crucial to avoid disk space exhaustion
-        try:
-            if file_path and os.path.exists(file_path):
-                os.remove(file_path)
-            if normalized_path and os.path.exists(normalized_path) and normalized_path != file_path:
-                os.remove(normalized_path)
-        except Exception as cleanup_err:
-            print(f"⚠️ [{meeting_id}] Cleanup error: {cleanup_err}")
 
 if __name__ == "__main__":
     import uvicorn

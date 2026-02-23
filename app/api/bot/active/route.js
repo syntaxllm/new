@@ -1,12 +1,7 @@
 import { NextResponse } from 'next/server';
 import { botManager } from '../../../../services/bot/manager';
 
-// Ensure we use the global instance for cross-route persistence in dev
-let manager = global.botManagerInstance;
-if (!manager) {
-    manager = botManager;
-    global.botManagerInstance = manager;
-}
+const manager = botManager;
 
 export async function GET() {
     try {
