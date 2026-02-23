@@ -1,6 +1,6 @@
 {
   "name": "meetingai",
-  "version": "1.0.0",
+  "version": "1.7.0",
   "description": "Next.js web app for Teams meeting transcript processing and search",
   "type": "module",
   "private": true,
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@azure/msal-node": "^3.8.5",
+    "@google/generative-ai": "^0.24.1",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "groq-sdk": "^0.37.0",

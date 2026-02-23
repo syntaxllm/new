@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server';
 import { loadChunksForMeeting } from '../../../../lib/backend-adapter.js';
-import { chatWithMeeting, searchChunks } from '../../../../lib/llm-service.js';
+import { chatWithMeeting } from '../../../../lib/llm-service.js';
+import { getUserIdFromRequest } from '../../../../lib/auth.js';
 
 export async function POST(request, { params }) {
     try {
         const { id } = params;
+        const userId = getUserIdFromRequest(request);
+
+        if (!userId) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
         const body = await request.json();
         const { question, chatHistory = [] } = body;
 
@@ -13,7 +19,7 @@ export async function POST(request, { params }) {
         }
 
         // Get all chunks for this meeting
-        const allChunks = await loadChunksForMeeting(id);
+        const allChunks = await loadChunksForMeeting(id, userId);
 
         if (!allChunks || allChunks.length === 0) {
             return NextResponse.json({ error: 'No chunks found for this meeting' }, { status: 404 });
@@ -21,7 +27,7 @@ export async function POST(request, { params }) {
 
         // Index search (Semantic RAG)
         const { searchChunksSemantic } = await import('../../../../lib/llm-service.js');
-        const relevantChunks = await searchChunksSemantic(question, id);
+        const relevantChunks = await searchChunksSemantic(question, id, 10, userId);
 
         if (relevantChunks.length === 0) {
             return NextResponse.json({

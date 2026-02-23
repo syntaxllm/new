@@ -427,7 +427,16 @@ class BotManager extends EventEmitter {
             console.log(`[BotManager] Triggering Action Items for ${meetingId}`);
             const actionRes = await fetch(`${baseUrl}/api/actions/${meetingId}`);
 
-            this.addBotLog(id, '✨ AI Finalization successful: Summary and Action Items generated.', 'info');
+            // Ensure one final storage/vectorization pass with full data
+            if (session.vttContent) {
+                const { ingestBotTranscript } = await import('../../lib/backend-adapter.js');
+                // Set final flag to trigger vectorization
+                const finalMetadata = { ...(session.metadata || {}), final: true };
+                await ingestBotTranscript(meetingId, session.vttContent, finalMetadata);
+                console.log(`[BotManager] 🎯 Final Vectorization Sync complete for ${meetingId}`);
+            }
+
+            this.addBotLog(id, '✨ AI Finalization successful: Summary, Action Items, and Vector Index updated.', 'info');
             console.log(`[BotManager] ✅ Meeting ${meetingId} fully processed.`);
         } catch (e) {
             console.error(`[BotManager] ❌ Finalization failed for ${meetingId}:`, e.message);

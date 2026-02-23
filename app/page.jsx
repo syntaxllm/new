@@ -135,9 +135,26 @@ const LiveTranscript = ({ vttContent }) => {
 
     if (Array.isArray(vttContent)) {
         vttContent.forEach(item => {
+            // Support multiple property name variations (from DB or Live Bot)
+            const startTime = item.start ?? item.start_time ?? item.time;
+            const speaker = item.speaker ?? item.speaker_id ?? 'Unknown';
+
+            let displayTime = '00:00:00';
+            if (typeof startTime === 'number') {
+                // If it's a Unix timestamp, format it
+                if (startTime > 1000000) {
+                    displayTime = new Date(startTime).toLocaleTimeString('en-US', { hour12: false });
+                } else {
+                    // If it's seconds from start
+                    displayTime = new Date(startTime * 1000).toISOString().substr(11, 8);
+                }
+            } else if (typeof startTime === 'string') {
+                displayTime = startTime;
+            }
+
             segments.push({
-                time: item.start_time ? `${new Date(item.start_time * 1000).toISOString().substr(11, 8)}` : (item.time || '00:00:00'),
-                speaker: item.speaker_id || item.speaker || 'Unknown',
+                time: displayTime,
+                speaker: speaker,
                 text: item.text
             });
         });
@@ -308,7 +325,7 @@ export default function MeetingAI() {
         const interval = setInterval(() => {
             loadMeetings();
             loadActiveBots();
-        }, 10000);
+        }, 3000);
         return () => clearInterval(interval);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
