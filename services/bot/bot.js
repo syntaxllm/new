@@ -1460,6 +1460,7 @@ const pid = process.pid;
             log('⚠️ Speaker tracker injection failed: ' + e.message);
         }
 
+        let noControlsTicks = 0;
         const heartbeatInterval = setInterval(async () => {
             if (meetingEnded) return;
 
@@ -1523,36 +1524,27 @@ const pid = process.pid;
                     } catch (e) { }
                 }
 
-                // 1. STATUS & SOLO DETECTION
+                // 1. SMART END DETECTION
                 if (finalState === 'IN_MEETING') {
-                    const status = await page.evaluate(() => {
-                        const txt = document.body.innerText;
-                        const ended = txt.includes('Call ended') || txt.includes('was removed') || txt.includes('You were removed');
+                    const isStillActive = await page.evaluate(() => {
+                        const hangupBtn = document.querySelector('button[aria-label*="hang up" i], button[id*="hangup"], button[aria-label*="leave" i]');
+                        const endedText = document.body.innerText.includes('Call ended') || document.body.innerText.includes('was removed') || document.body.innerText.includes('You were removed');
                         const rejoinBtn = document.querySelector('button[aria-label*="rejoin" i]');
 
-                        if (ended || rejoinBtn) return { ended: true };
+                        if (!hangupBtn || endedText || rejoinBtn) return false;
+                        return true;
+                    }).catch(() => false);
 
-                        const scanDoc = (doc) => {
-                            let count = doc.querySelectorAll('[data-tid*="video-tile"], [data-tid*="roster-participant"]').length;
-                            const peopleBtn = doc.querySelector('button[aria-label*="people" i], button[aria-label*="participants" i]');
-                            if (peopleBtn) {
-                                const match = (peopleBtn.ariaLabel || '').match(/\((\d+)\)/);
-                                if (match) count = Math.max(count, parseInt(match[1]));
-                            }
-                            doc.querySelectorAll('iframe').forEach(f => {
-                                try { if (f.contentDocument) count = Math.max(count, scanDoc(f.contentDocument)); } catch (e) { }
-                            });
-                            return count;
-                        };
-                        return { ended: false, participants: scanDoc(document) };
-                    }).catch(() => ({ ended: false, participants: 2 })); // Fallback to safe count
-
-                    if (status.ended) {
-                        log('🚩 Meeting end confirmed via UI signals.');
-                        meetingEnded = true;
-                        return;
+                    if (!isStillActive) {
+                        noControlsTicks++;
+                        if (noControlsTicks >= 3) {
+                            log('🚩 Meeting end detected via UI signals (controls vanished or end screen displayed).');
+                            meetingEnded = true;
+                            return;
+                        }
+                    } else {
+                        noControlsTicks = 0;
                     }
-
                 }
 
                 // 2. SAFETY SWEEP & POP-UP BUSTER
