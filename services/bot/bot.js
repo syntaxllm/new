@@ -89,7 +89,11 @@ const pid = process.pid;
             '--allow-loopback-in-peer-connection',
             // Iframe/Security Bypass (Critical for cross-origin join buttons)
             '--disable-web-security',
-            '--disable-features=IsolateOrigins,site-per-process'
+            '--disable-features=IsolateOrigins,site-per-process',
+            // High Performance / Background Timer bypass
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-renderer-backgrounding'
         ]
     });
 
@@ -128,6 +132,11 @@ const pid = process.pid;
         if (Math.floor(totalBytesReceived / (1024 * 1024 * 5)) > Math.floor((totalBytesReceived - buffer.length) / (1024 * 1024 * 5))) {
             log(`🎤 Audio Data Ingested (${Math.round(totalBytesReceived / 1024 / 1024)}MB total)`);
         }
+    });
+
+    // Expose IPC dispatcher so browser DOM can send status updates to Manager
+    await page.exposeFunction('sendIPC', (type, payload) => {
+        sendIPC(type, payload);
     });
 
     // --- INCREMENTAL TRANSCRIPTION LOOP (Queue Processor) ---
@@ -853,12 +862,13 @@ const pid = process.pid;
                     } catch (e) {
                         console.error('[EAR] Rotation failed:', e.message);
                     }
-                }, 10000); // Rotate every 10s
+                }, 30000); // Rotate every 30s for perfect Whisper alignment
 
                 try {
                     if (mediaRecorder.state !== 'recording') {
                         mediaRecorder.start();
                         console.log('[EAR] MediaRecorder started clean.');
+                        if (window.sendIPC) window.sendIPC('recording-start', { timestamp: Date.now() });
                     }
                 } catch (e) {
                     console.error('[EAR] Initial start error:', e.message);
@@ -1288,11 +1298,12 @@ const pid = process.pid;
                             } catch (e) {
                                 console.error('[EAR-FB] Rotation failed:', e.message);
                             }
-                        }, 10000); // Rotate every 10s
+                        }, 30000); // Rotate every 30s
 
                         mediaRecorder.start();
                         window.meetingMediaRecorder = mediaRecorder;
-                        console.log(`[EAR-FB] MediaRecorder active (${mimeType}) with 10s rotation`);
+                        console.log(`[EAR-FB] MediaRecorder active (${mimeType}) with 30s rotation`);
+                        if (window.sendIPC) window.sendIPC('recording-start', { timestamp: Date.now() });
                     });
 
                     await new Promise(r => setTimeout(r, 3000));
@@ -1542,17 +1553,6 @@ const pid = process.pid;
                         return;
                     }
 
-                    if (status.participants <= 1) {
-                        soloTicks++;
-                        if (soloTicks % 6 === 0) log(`⚠️ Bot appears to be alone (${soloTicks}/18 sweeps)...`);
-                        if (soloTicks >= 18) { // 3 minutes alone waiting time
-                            log('🛑 Bot has been alone for 3 minutes. Concluding meeting...');
-                            meetingEnded = true;
-                            return;
-                        }
-                    } else {
-                        soloTicks = 0;
-                    }
                 }
 
                 // 2. SAFETY SWEEP & POP-UP BUSTER
