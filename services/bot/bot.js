@@ -131,7 +131,7 @@ const pid = process.pid;
     });
 
     // --- INCREMENTAL TRANSCRIPTION LOOP (Queue Processor) ---
-    setInterval(async () => {
+    const incrementalIntervalId = setInterval(async () => {
         if (activeChunks.length === 0 || isTranscribingIncrementally) return;
 
         isTranscribingIncrementally = true;
@@ -167,7 +167,7 @@ const pid = process.pid;
                     // Use 127.0.0.1 for more reliable localhost resolution on Windows
                     const sttUrl = 'http://127.0.0.1:4545/transcribe';
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 60000);
+                    const timeoutId = setTimeout(() => controller.abort(), 180000); // Increased from 60s to 180s for slow CPUs
 
                     const response = await fetch(sttUrl, {
                         method: 'POST',
@@ -1269,7 +1269,7 @@ const pid = process.pid;
 
                         const stream = dest.stream;
                         const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-                        const mediaRecorder = new MediaRecorder(stream, { mimeType });
+                        const mediaRecorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64000 });
                         mediaRecorder.ondataavailable = async (e) => {
                             if (e.data && e.data.size > 0) {
                                 const reader = new FileReader();
@@ -1277,9 +1277,22 @@ const pid = process.pid;
                                 reader.readAsDataURL(e.data);
                             }
                         };
-                        mediaRecorder.start(2000);
+
+                        // NEW: Stop & Start Strategy for perfect standalone chunks
+                        setInterval(() => {
+                            try {
+                                if (mediaRecorder.state === 'recording') {
+                                    mediaRecorder.stop();
+                                    mediaRecorder.start();
+                                }
+                            } catch (e) {
+                                console.error('[EAR-FB] Rotation failed:', e.message);
+                            }
+                        }, 10000); // Rotate every 10s
+
+                        mediaRecorder.start();
                         window.meetingMediaRecorder = mediaRecorder;
-                        console.log(`[EAR-FB] MediaRecorder active (${mimeType})`);
+                        console.log(`[EAR-FB] MediaRecorder active (${mimeType}) with 10s rotation`);
                     });
 
                     await new Promise(r => setTimeout(r, 3000));
@@ -1531,9 +1544,9 @@ const pid = process.pid;
 
                     if (status.participants <= 1) {
                         soloTicks++;
-                        if (soloTicks % 2 === 0) log(`⚠️ Bot is alone (${soloTicks}/10)...`);
-                        if (soloTicks >= 10) {
-                            log('🛑 GHOST MEETING DETECTED. Exiting...');
+                        if (soloTicks % 6 === 0) log(`⚠️ Bot appears to be alone (${soloTicks}/18 sweeps)...`);
+                        if (soloTicks >= 18) { // 3 minutes alone waiting time
+                            log('🛑 Bot has been alone for 3 minutes. Concluding meeting...');
                             meetingEnded = true;
                             return;
                         }
@@ -1569,7 +1582,12 @@ const pid = process.pid;
                 // 4. MEETING END SCREEN CHECK
                 const hasEndScreen = await page.evaluate(() => {
                     const txt = document.body.innerText;
-                    return txt.includes("Meeting ended") || txt.includes("The meeting has ended");
+                    return txt.includes("Meeting ended") ||
+                        txt.includes("The meeting has ended") ||
+                        txt.includes("Call ended") ||
+                        txt.includes("How was the call quality") ||
+                        txt.includes("You left the call") ||
+                        txt.includes("Rate the quality");
                 }).catch(() => false);
                 if (hasEndScreen) {
                     log('🛑 End screen detected.');
@@ -1607,6 +1625,9 @@ const pid = process.pid;
             await new Promise(r => setTimeout(r, 5000));
         }
 
+        // --- STOP ALL BACKGROUND WORKERS ---
+        clearInterval(incrementalIntervalId);
+        clearInterval(heartbeatInterval);
         console.log('✅ Transcription period complete (Meeting fully ingested)');
 
         // Stop recording
@@ -1623,61 +1644,19 @@ const pid = process.pid;
             console.error('Error stopping recorder:', e.message);
         }
 
-        // Trigger STT (Final Full Pass)
-        console.log('🤖 Triggering Final STT Transcription...');
+        // The manager.js already holds the complete VTT aggressively synced.
+        // There is absolutely no need to run a "Final Full Pass" on a 2-hour audio file,
+        // which was causing massive hallucination timeouts and crashing the finalization.
+
+        console.log('✅ Notifying manager of successful completion.');
+        sendIPC('status', 'ENDED');
+        // Give manager a moment to process before exiting
+        await new Promise(r => setTimeout(r, 2000));
+
         try {
-            const { transcribeAudio } = await import('../stt/service.js');
-            const result = await transcribeAudio(RECORDING_PATH);
-
-            if (result && (result.text || result.segments)) {
-                // Stitch final speaker names into segments
-                // ... (Detailed stitching logic omitted for brevity, assuming existing logic is correct)
-                // This block handles the final processing
-
-                // 1. Save Raw Text
-                const textPath = TRANSCRIPT_PATH;
-                fs.writeFileSync(textPath, result.text || '');
-                console.log(`✅ Text Transcript saved to: ${textPath}`);
-
-                // 2. Generate and Save VTT
-                if (result.segments && result.segments.length > 0) {
-                    const vttPath = textPath.replace('.txt', '.vtt');
-
-                    // Simple VTT Generator Helper
-                    const formatTime = (seconds) => {
-                        const date = new Date(0);
-                        date.setSeconds(seconds);
-                        const substr = date.toISOString().substr(11, 8);
-                        const ms = Math.floor((seconds % 1) * 1000).toString().padStart(3, '0');
-                        return `${substr}.${ms}`;
-                    };
-
-                    let vtt = 'WEBVTT\n\n';
-                    result.segments.forEach((seg, index) => {
-                        const start = formatTime(seg.start);
-                        const end = formatTime(seg.end);
-                        const speaker = seg.speaker || seg.speaker_id || 'Participant';
-                        vtt += `${index + 1}\n`;
-                        vtt += `${start} --> ${end}\n`;
-                        vtt += `<v ${speaker}>${seg.text.trim()}</v>\n\n`;
-                    });
-
-                    fs.writeFileSync(vttPath, vtt);
-                    console.log(`✅ VTT Transcript saved to: ${vttPath}`);
-                    result.vttPath = vttPath;
-                }
-                sendIPC('transcript', result);
-                sendIPC('status', 'COMPLETED');
-
-            } else {
-                log('⚠️ Final STT returned empty result.');
-                sendIPC('status', 'COMPLETED_EMPTY');
-            }
-
-        } catch (finalErr) {
-            console.error('❌ Final STT process failed:', finalErr);
-            sendIPC('status', 'FAILED');
-        }
+            if (browser) await browser.close();
+        } catch (e) { }
+        process.exit(0);
 
     } catch (err) {
         sendIPC('status', 'FAILED');

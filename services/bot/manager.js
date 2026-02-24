@@ -446,6 +446,7 @@ class BotManager extends EventEmitter {
 
             this.addBotLog(id, '✨ AI Finalization successful: Summary, Action Items, and Vector Index updated.', 'info');
             console.log(`[BotManager] ✅ Meeting ${meetingId} fully processed.`);
+            this.updateBotStatus(id, BotState.ENDED);
         } catch (e) {
             console.error(`[BotManager] ❌ Finalization failed for ${meetingId}:`, e.message);
             this.addBotLog(id, `⚠️ Finalization error: ${e.message}`, 'error');

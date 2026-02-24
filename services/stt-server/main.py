@@ -208,11 +208,14 @@ def transcribe(
         # This is now running in a thread pool, so health checks won't block!
         segments, info = model.transcribe(
             normalized_path, 
-            beam_size=1, # Fast!
-            vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=800, threshold=0.4),
-            initial_prompt="This is a meeting transcript.",
+            beam_size=1, # Speed optimized back to 1 (5 was causing 60s CPU lock timeouts)
+            vad_filter=True, 
+            vad_parameters=dict(min_silence_duration_ms=1000, speech_pad_ms=200), # Safer VAD processing time
+            initial_prompt="Meeting transcript.",
             condition_on_previous_text=False,
+            no_speech_threshold=0.6,
+            log_prob_threshold=-1.0,
+            compression_ratio_threshold=2.4,
             temperature=0.0
         )
         

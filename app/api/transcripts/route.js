@@ -14,8 +14,7 @@ export async function GET(req) {
     // But `storage-prod.js` implementation: `const query = userId ? { userId } : {};`
     // So if userId is null, it returns ALL. This might be bad for security if we enforce auth.
 
-    // Let's enforce it:
-    return NextResponse.json([], { status: 401 });
+    return NextResponse.json([]);
   }
 
   const list = await loadTranscripts(userId);
